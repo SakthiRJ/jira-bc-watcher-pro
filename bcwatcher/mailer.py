@@ -9,7 +9,7 @@ import smtplib
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 
-from config import Config
+from bcwatcher.config import Config
 
 
 class Mailer:
@@ -23,7 +23,8 @@ class Mailer:
         self._smtp_send(subject, body_html)
 
     def _print(self, subject: str, body_html: str) -> None:
-        import os, sys
+        import os
+        import sys
         # Save HTML to file - avoids Windows cp1252 emoji encoding issues on the console
         out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_run_email.html")
         with open(out_path, "w", encoding="utf-8") as f:

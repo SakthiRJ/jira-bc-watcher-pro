@@ -8,8 +8,8 @@ param(
     [string]$TaskName = "JiraBCWatcher"
 )
 
-$dir = $PSScriptRoot
-$runner = Join-Path $dir "run_watcher.ps1"
+$dir = Split-Path -Parent $PSScriptRoot
+$runner = Join-Path $PSScriptRoot "run_watcher.ps1"
 
 if (-not (Test-Path (Join-Path $dir ".venv\Scripts\python.exe"))) {
     Write-Error "Virtual environment not found. Create it first: C:\python.exe -m venv .venv"

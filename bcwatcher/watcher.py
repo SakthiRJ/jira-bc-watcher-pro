@@ -21,12 +21,12 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from config import config
-from grouping import build_groups
-from jira_client import Comment, Issue, JiraClient, in_scope
-from mailer import Mailer
-from state import State
-from summarizer import Summarizer
+from bcwatcher.config import config
+from bcwatcher.grouping import build_groups
+from bcwatcher.jira_client import Comment, Issue, JiraClient, in_scope
+from bcwatcher.mailer import Mailer
+from bcwatcher.state import State
+from bcwatcher.summarizer import Summarizer
 
 
 def _force_utf8_output() -> None:

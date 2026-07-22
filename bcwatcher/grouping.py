@@ -13,7 +13,7 @@ T3/CL ticket), never as a long list of sub-tickets.
 """
 from __future__ import annotations
 
-from jira_client import Issue, in_scope
+from bcwatcher.jira_client import Issue, in_scope
 
 
 class _UnionFind:

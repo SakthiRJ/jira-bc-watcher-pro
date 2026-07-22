@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 import requests
 
-from config import Config
+from bcwatcher.config import Config
 
 
 @dataclass

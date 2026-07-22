@@ -16,17 +16,19 @@ to auto-start it at logon) and the scanning + emailing happen on their own.
 """
 from __future__ import annotations
 
+import os
 import sys
 import threading
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-import store
-from config import config
-from digest import send_digest
-from scanner import run_scan
+from bcwatcher import store
+from bcwatcher.config import config
+from bcwatcher.digest import send_digest
+from bcwatcher.scanner import run_scan
 
 SCAN_JOB_ID = "bc_scan"
 DIGEST_JOB_ID = "bc_digest"
@@ -126,8 +128,8 @@ def api_results():
         "next_digest": _next_run_iso(DIGEST_JOB_ID),
     }
     # Re-read .env so DRY_RUN changes take effect without a restart.
-    from dotenv import load_dotenv as _ld; import os as _os; _ld(override=True)
-    snapshot["dry_run"] = _os.getenv("DRY_RUN","true").strip().lower() in {"1","true","yes","on"}
+    load_dotenv(override=True)
+    snapshot["dry_run"] = os.getenv("DRY_RUN", "true").strip().lower() in {"1", "true", "yes", "on"}
     snapshot["jira_base_url"] = config.jira_base_url
     return jsonify(snapshot)
 
@@ -159,7 +161,6 @@ def api_scan():
 
 @app.route("/digest-preview")
 def digest_preview():
-    import os
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_run_email.html")
     if not os.path.exists(path):
         return "<p>No digest preview available yet. Click <b>Send digest now</b> first.</p>", 404

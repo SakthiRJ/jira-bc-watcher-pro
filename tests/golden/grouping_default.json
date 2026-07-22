@@ -1,0 +1,14 @@
+[
+  {
+    "members": ["CL-300"],
+    "display_keys": ["CL-300"]
+  },
+  {
+    "members": ["CON-100", "CON-101", "CON-102", "T3-200"],
+    "display_keys": ["CON-100", "T3-200"]
+  },
+  {
+    "members": ["CON-400"],
+    "display_keys": ["CON-400"]
+  }
+]

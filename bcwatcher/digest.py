@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import store
-from config import config
-from emailfmt import render_digest
-from mailer import Mailer
+from bcwatcher import store
+from bcwatcher.config import config
+from bcwatcher.emailfmt import render_digest
+from bcwatcher.mailer import Mailer
 
 
 def send_digest(scan_first: bool = False, reason: str = "manual") -> dict:

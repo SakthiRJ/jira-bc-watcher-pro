@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 
 import requests
 
-from config import Config
+from bcwatcher.config import Config
 
 if TYPE_CHECKING:  # avoid circular import at runtime
-    from jira_client import Comment, Issue
+    from bcwatcher.jira_client import Comment, Issue
 
 MAX_COMMENTS = 12
 MAX_COMMENT_CHARS = 1200

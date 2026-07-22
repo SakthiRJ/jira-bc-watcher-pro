@@ -15,14 +15,14 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 
-import store
-from config import config
-from emailfmt import render_progress_email, _wrap
-from grouping import build_groups, display_keys
-from jira_client import Comment, Issue, JiraClient, in_scope
-from mailer import Mailer
-from state import State
-from summarizer import Summarizer, truncate
+from bcwatcher import store
+from bcwatcher.config import config
+from bcwatcher.emailfmt import _wrap, render_progress_email
+from bcwatcher.grouping import build_groups, display_keys
+from bcwatcher.jira_client import Comment, Issue, JiraClient, in_scope
+from bcwatcher.mailer import Mailer
+from bcwatcher.state import State
+from bcwatcher.summarizer import Summarizer, truncate
 
 _scan_lock = threading.Lock()
 
@@ -128,32 +128,42 @@ def _run_scan_locked(reason: str) -> dict:
             baseline(issue)
 
     rca_roots: set[str] = set()
+    # Keys whose AI/email step failed this cycle. We deliberately do NOT advance
+    # their state pointers below so the case is retried on the next scan instead
+    # of being silently skipped.
+    failed_rca_keys: set[str] = set()
+    failed_update_member_keys: set[str] = set()
 
     # -- RCA on closure -----------------------------------------------------
     for issue in closed_issues:
         key = issue.key
         if key not in known_before or state.rca_sent(key) or prior_status.get(key) == "done":
             continue
-        group = _group_of(key, groups)
-        primary = _pick_primary(group, bc_keys)
-        all_comments: list[Comment] = []
-        for m in group:
-            all_comments.extend(comments_of(m.key))
-        all_comments.sort(key=lambda c: c.created)
-        rca = summarizer.rca(primary, group, all_comments)
-        if settings.get("rca_emails", True):
-            keys_title = " + ".join(display_keys(group))
-            body = _wrap(
-                f'<h2 style="color:#172b4d;margin:0 0 10px 0">RCA: {keys_title}</h2>'
-                f'<p style="color:#6b778c;margin:0 0 14px 0">{primary.key} - {primary.summary}</p>'
-                + rca["body_html"]
-                + f'<p style="margin-top:14px"><a href="{config.jira_base_url}/browse/{primary.key}">'
-                f"Open {primary.key}</a></p>"
-            )
-            mailer.send(rca["subject"], body)
-            log(f"RCA email for closed case {keys_title}.")
-        state.mark_rca_sent(key)
-        rca_roots.add(group[0].key)
+        try:
+            group = _group_of(key, groups)
+            primary = _pick_primary(group, bc_keys)
+            all_comments: list[Comment] = []
+            for m in group:
+                all_comments.extend(comments_of(m.key))
+            all_comments.sort(key=lambda c: c.created)
+            rca = summarizer.rca(primary, group, all_comments)
+            if settings.get("rca_emails", True):
+                keys_title = " + ".join(display_keys(group))
+                body = _wrap(
+                    f'<h2 style="color:#172b4d;margin:0 0 10px 0">RCA: {keys_title}</h2>'
+                    f'<p style="color:#6b778c;margin:0 0 14px 0">{primary.key} - {primary.summary}</p>'
+                    + rca["body_html"]
+                    + f'<p style="margin-top:14px"><a href="{config.jira_base_url}/browse/{primary.key}">'
+                    f"Open {primary.key}</a></p>"
+                )
+                mailer.send(rca["subject"], body)
+                log(f"RCA email for closed case {keys_title}.")
+            state.mark_rca_sent(key)
+            rca_roots.add(group[0].key)
+        except Exception as exc:  # noqa: BLE001 - one bad case must not abort the scan
+            failed_rca_keys.add(key)
+            log(f"RCA failed for {key}: {exc}. Will retry next cycle.")
+            continue
 
     # -- Cases + incremental updates ---------------------------------------
     cases_out: list[dict] = []
@@ -204,15 +214,21 @@ def _run_scan_locked(reason: str) -> dict:
             case["whats_next"] = "None"
         elif new_comments:
             new_comments.sort(key=lambda c: c.created)
-            ai = summarizer.status(primary, members, new_comments)
-            case["current_status"] = ai["current_status"]
-            case["whats_next"] = ai["whats_next"]
-            case["last_update_author"] = new_comments[-1].author
-            case["last_update_time"] = new_comments[-1].created
-            log(f"Update for {' + '.join(dkeys)} ({len(new_comments)} new comment(s)).")
-            if settings.get("realtime_emails", True) and active:
-                subject, body = render_progress_email(case, config.jira_base_url)
-                mailer.send(subject, body)
+            try:
+                ai = summarizer.status(primary, members, new_comments)
+                case["current_status"] = ai["current_status"]
+                case["whats_next"] = ai["whats_next"]
+                case["last_update_author"] = new_comments[-1].author
+                case["last_update_time"] = new_comments[-1].created
+                log(f"Update for {' + '.join(dkeys)} ({len(new_comments)} new comment(s)).")
+                if settings.get("realtime_emails", True) and active:
+                    subject, body = render_progress_email(case, config.jira_base_url)
+                    mailer.send(subject, body)
+            except Exception as exc:  # noqa: BLE001 - one bad case must not abort the scan
+                failed_update_member_keys.update(m.key for m in members)
+                log(f"Update failed for {' + '.join(dkeys)}: {exc}. Will retry next cycle.")
+                case["current_status"] = (prev_case or {}).get("current_status") or "Update received; see ticket for details."
+                case["whats_next"] = (prev_case or {}).get("whats_next") or "Not stated in ticket"
         elif active:
             case["no_update"] = True
             case["current_status"] = (prev_case or {}).get("current_status") or "No update since last check"
@@ -224,12 +240,16 @@ def _run_scan_locked(reason: str) -> dict:
         cases_out.append(case)
 
     # -- advance pointers + statuses ---------------------------------------
+    # Cases whose AI/email step failed this cycle keep their old pointers so the
+    # next scan re-detects the same new comment / closure and retries.
     for key, issue in issues.items():
         if key in known_before:
-            cs = comments_of(key)
-            if cs:
-                state.set_last_comment(key, cs[-1].id, cs[-1].created)
-            state.set_status_category(key, issue.status_category)
+            if key not in failed_update_member_keys:
+                cs = comments_of(key)
+                if cs:
+                    state.set_last_comment(key, cs[-1].id, cs[-1].created)
+            if key not in failed_rca_keys:
+                state.set_status_category(key, issue.status_category)
 
     state.mark_initialized()
     state.save()

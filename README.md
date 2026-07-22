@@ -73,7 +73,7 @@ Copy-Item .env.example .env
 Start the dashboard - this is the only process you need to keep running:
 
 ```powershell
-.\.venv\Scripts\python.exe app.py
+.\.venv\Scripts\python.exe -m bcwatcher.app
 ```
 
 Then open **http://127.0.0.1:5000** in your browser. The dashboard:
@@ -92,7 +92,7 @@ Output is appended to `dashboard.log`.
 Register the dashboard to start automatically when you log on:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup_dashboard_task.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_dashboard_task.ps1
 ```
 
 - Start it immediately after registering: `Start-ScheduledTask -TaskName "JiraBCDashboard"`.
@@ -101,14 +101,14 @@ powershell -ExecutionPolicy Bypass -File .\setup_dashboard_task.ps1
 ## Running without the dashboard (legacy single-cycle mode)
 
 ```powershell
-.\.venv\Scripts\python.exe watcher.py        # one cycle
-.\.venv\Scripts\python.exe watcher.py --loop # continuous loop
+.\.venv\Scripts\python.exe -m bcwatcher.watcher        # one cycle
+.\.venv\Scripts\python.exe -m bcwatcher.watcher --loop # continuous loop
 ```
 
 ## Demo / video script (AI adoption challenge)
 
 1. Show `.env` with `POLL_INTERVAL_MINUTES=1` and `DRY_RUN=true`, and start
-   `watcher.py --loop`. First cycle baselines silently.
+   `python -m bcwatcher.watcher --loop`. First cycle baselines silently.
 2. Add a comment to a real business-critical ticket (e.g. `CON-2084`). Within a
    minute, show the AI-composed progress update appear in `watcher.log`
    (or the stakeholder inbox once `DRY_RUN=false`).
@@ -139,22 +139,36 @@ Dashboard settings (stored in `settings.json`, editable live from the UI):
 | `digest_enabled` | Send the consolidated end-of-day digest email. |
 | `eod_hour` / `eod_minute` | Time to send the daily digest (24 h clock, default 19:00). |
 
-## Files
+## Project structure
 
-| File | Purpose |
-|---|---|
-| `app.py` | Flask dashboard + embedded APScheduler (scan timer + EOD digest). |
-| `scanner.py` | Core scan logic; writes `results.json` for the dashboard. |
-| `digest.py` | End-of-day consolidated digest email. |
-| `emailfmt.py` | HTML email formatter (Description, Current Status, Last Update, What's next). |
-| `store.py` | Persists `settings.json` and `results.json`. |
-| `grouping.py` | Groups linked tickets into cases; rolls CON sub-tickets up to their Epic. |
-| `jira_client.py` | Jira REST client (search, comments, linked issues). |
-| `summarizer.py` | Groq AI progress + RCA generation. |
-| `mailer.py` | SMTP sender with dry-run mode. |
-| `state.py` | Persistent per-ticket state in `state.json`. |
-| `config.py` | Loads and validates configuration from `.env`. |
-| `watcher.py` | Legacy single-cycle / loop runner (no dashboard). |
-| `setup_dashboard_task.ps1` | Registers dashboard as a Windows logon task. |
-| `run_dashboard.ps1` | Runner script used by the scheduled task. |
-| `setup_task.ps1` / `run_watcher.ps1` | Legacy Task Scheduler setup for `watcher.py`. |
+```
+jira-bc-watcher-pro/
+├─ bcwatcher/                 # application package
+│  ├─ app.py                  # Flask dashboard + embedded APScheduler (scan timer + EOD digest)
+│  ├─ scanner.py              # core scan logic; writes results.json for the dashboard
+│  ├─ digest.py               # end-of-day consolidated digest email
+│  ├─ emailfmt.py             # HTML email formatter (Description, Status, Last Update, What's next)
+│  ├─ store.py                # persists settings.json and results.json
+│  ├─ grouping.py             # groups linked tickets into cases; rolls CON sub-tickets up to their Epic
+│  ├─ jira_client.py          # Jira REST client (search, comments, linked issues)
+│  ├─ summarizer.py           # Groq AI progress + RCA generation
+│  ├─ mailer.py               # SMTP sender with dry-run mode
+│  ├─ state.py                # persistent per-ticket state in state.json
+│  ├─ config.py               # loads and validates configuration from .env
+│  ├─ watcher.py              # legacy single-cycle / loop runner (no dashboard)
+│  ├─ demo_trigger.py         # demo helper for the AI adoption walkthrough
+│  └─ templates/dashboard.html
+├─ scripts/                   # Windows helper scripts
+│  ├─ run_dashboard.ps1       # runner used by the dashboard scheduled task
+│  ├─ setup_dashboard_task.ps1# registers the dashboard as a Windows logon task
+│  ├─ run_watcher.ps1         # runner used by the legacy watcher task
+│  └─ setup_task.ps1          # legacy Task Scheduler setup for the watcher
+├─ tests/                     # pytest suite (grouping, state, scanner fault-injection)
+├─ docs/                      # architecture notes + phase sign-off records
+├─ .github/workflows/ci.yml   # lint + test CI
+├─ requirements.txt / requirements-dev.txt
+└─ pyproject.toml             # pytest + ruff config
+```
+
+Run entry points as modules from the repo root: `python -m bcwatcher.app` (dashboard)
+and `python -m bcwatcher.watcher` (legacy runner).

@@ -11,10 +11,10 @@ Both run a single watcher cycle afterwards.
 """
 import sys
 
-from config import config
-from jira_client import JiraClient
-from state import State
-from watcher import Watcher, _force_utf8_output, log
+from bcwatcher.config import config
+from bcwatcher.jira_client import JiraClient
+from bcwatcher.state import State
+from bcwatcher.watcher import Watcher, _force_utf8_output, log
 
 
 def _progress(key: str) -> int:
