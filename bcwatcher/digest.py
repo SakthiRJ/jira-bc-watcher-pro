@@ -24,7 +24,7 @@ def send_digest(scan_first: bool = False, reason: str = "manual") -> dict:
     """
     if scan_first:
         # Imported lazily to avoid a circular import at module load time.
-        from scanner import run_scan
+        from bcwatcher.scanner import run_scan
 
         run_scan(reason=f"digest:{reason}")
 

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from bcwatcher import store
 from bcwatcher.config import config
-from bcwatcher.emailfmt import _wrap, render_progress_email
+from bcwatcher.emailfmt import _wrap, render_audience_email, render_progress_email
 from bcwatcher.grouping import build_groups, display_keys
 from bcwatcher.jira_client import Comment, Issue, JiraClient, in_scope
 from bcwatcher.mailer import Mailer
@@ -199,6 +199,8 @@ def _run_scan_locked(reason: str) -> dict:
             "description": truncate(primary.description, 600) or "Not stated in ticket",
             "status": primary.status,
             "status_category": primary.status_category,
+            "priority": primary.priority,
+            "owner": primary.assignee,
             "member_keys": [m.key for m in members],
             "last_update_author": newest_human.author if newest_human else None,
             "last_update_time": newest_human.created if newest_human else None,
@@ -207,6 +209,8 @@ def _run_scan_locked(reason: str) -> dict:
             "no_update": False,
             "current_status": "",
             "whats_next": "",
+            "customer_impact": "",
+            "technical_summary": "",
         }
 
         if root in rca_roots:
@@ -215,15 +219,17 @@ def _run_scan_locked(reason: str) -> dict:
         elif new_comments:
             new_comments.sort(key=lambda c: c.created)
             try:
-                ai = summarizer.status(primary, members, new_comments)
-                case["current_status"] = ai["current_status"]
-                case["whats_next"] = ai["whats_next"]
+                facts = summarizer.case_facts(primary, members, new_comments)
+                case["current_status"] = facts["current_status"]
+                case["whats_next"] = facts["whats_next"]
+                case["customer_impact"] = facts["customer_impact"]
+                case["technical_summary"] = facts["technical_summary"]
                 case["last_update_author"] = new_comments[-1].author
                 case["last_update_time"] = new_comments[-1].created
+                case["last_update_body"] = truncate(new_comments[-1].body, 220)
                 log(f"Update for {' + '.join(dkeys)} ({len(new_comments)} new comment(s)).")
                 if settings.get("realtime_emails", True) and active:
-                    subject, body = render_progress_email(case, config.jira_base_url)
-                    mailer.send(subject, body)
+                    _send_progress_emails(mailer, case)
             except Exception as exc:  # noqa: BLE001 - one bad case must not abort the scan
                 failed_update_member_keys.update(m.key for m in members)
                 log(f"Update failed for {' + '.join(dkeys)}: {exc}. Will retry next cycle.")
@@ -270,6 +276,23 @@ def _safe_clear_scanning() -> None:
             store.save_results(snap)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _send_progress_emails(mailer: Mailer, case: dict) -> None:
+    """Send recipient-tailored progress emails.
+
+    When per-audience recipient lists are configured, each audience gets its own
+    template from the single validated fact set. Otherwise fall back to the
+    general update sent to EMAIL_RECIPIENTS (backward compatible).
+    """
+    audiences = config.audience_recipients()
+    if audiences:
+        for audience, recipients in audiences.items():
+            subject, body = render_audience_email(case, audience, config.jira_base_url)
+            mailer.send(subject, body, to=recipients)
+    else:
+        subject, body = render_progress_email(case, config.jira_base_url)
+        mailer.send(subject, body)
 
 
 def _group_of(key: str, groups: list[list[Issue]]) -> list[Issue]:

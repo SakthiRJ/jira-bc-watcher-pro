@@ -81,6 +81,13 @@ class Config:
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     smtp_from: str = os.getenv("SMTP_FROM", "")
     recipients: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS", ""))
+    # Recipient-tailored delivery (Phase 2). Each audience gets a template written
+    # for it; leave a list empty to not send that audience. If none are set, the
+    # watcher falls back to the single general update sent to EMAIL_RECIPIENTS.
+    recipients_support: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_SUPPORT", ""))
+    recipients_dev: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_DEV", ""))
+    recipients_manager: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_MANAGER", ""))
+    recipients_leadership: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_LEADERSHIP", ""))
 
     # Behaviour
     dry_run: bool = _bool("DRY_RUN", True)
@@ -123,6 +130,20 @@ class Config:
             base_url=(self.llm_base_url or self.groq_base_url).rstrip("/"),
             **common,
         )
+
+    def audience_recipients(self) -> dict[str, list[str]]:
+        """Audiences that have at least one recipient, in delivery order.
+
+        Empty when no per-audience lists are configured; callers then fall back
+        to the single general update to EMAIL_RECIPIENTS.
+        """
+        mapping = {
+            "support": self.recipients_support,
+            "dev": self.recipients_dev,
+            "manager": self.recipients_manager,
+            "leadership": self.recipients_leadership,
+        }
+        return {audience: recips for audience, recips in mapping.items() if recips}
 
     def validate(self) -> list[str]:
         """Return a list of human-readable problems (empty means OK)."""

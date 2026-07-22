@@ -37,8 +37,17 @@ class FakeSummarizer:
     def __init__(self, config):
         pass
 
+    def case_facts(self, primary, group, new_comments):
+        return {
+            "current_status": "Investigating.",
+            "whats_next": "Deploy fix.",
+            "customer_impact": "Not stated in ticket",
+            "technical_summary": "Not stated in ticket",
+        }
+
     def status(self, primary, group, new_comments):
-        return {"current_status": "Investigating.", "whats_next": "Deploy fix."}
+        facts = self.case_facts(primary, group, new_comments)
+        return {"current_status": facts["current_status"], "whats_next": facts["whats_next"]}
 
     def rca(self, primary, group, comments):
         return {"subject": "[RCA] x", "body_html": "<p>x</p>"}
@@ -49,7 +58,7 @@ class FakeMailer:
         self.attempts = 0
         self.sent = []
 
-    def send(self, subject, body_html):
+    def send(self, subject, body_html, to=None):
         self.attempts += 1
         # Fail the FIRST case only (CON-1, processed first because groups sort by key).
         if self.attempts == 1:

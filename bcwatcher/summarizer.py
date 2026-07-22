@@ -35,6 +35,8 @@ MAX_DESCRIPTION_CHARS = 700
 
 STATUS_MAX_CHARS = 280
 NEXT_MAX_CHARS = 200
+IMPACT_MAX_CHARS = 280
+TECHNICAL_MAX_CHARS = 400
 SUBJECT_MAX_CHARS = 180
 
 _STATUS_FALLBACK = "Update received; see ticket for details."
@@ -78,17 +80,23 @@ class Summarizer:
         # Provider is resolved from config but can be injected (tests / future DI).
         self.provider = provider or build_provider(config)
 
-    def status(self, primary: "Issue", group: list["Issue"], new_comments: list["Comment"]) -> dict:
+    def case_facts(self, primary: "Issue", group: list["Issue"], new_comments: list["Comment"]) -> dict:
+        """One grounded extraction that feeds every audience template.
+
+        Returns validated, audience-neutral facts. Rendering per audience is done
+        in pure code (emailfmt), so we pay for a single LLM call regardless of how
+        many audiences are notified.
+        """
         keys = ", ".join(i.key for i in group)
         context = self._case_context(primary, group)
         comment_block = _build_comment_block(new_comments)
         system = (
-            "You write concise, factual status updates about business-critical "
-            "support tickets for non-technical stakeholders. " + _GROUNDING_RULES
+            "You extract factual details about a business-critical support case "
+            "so they can be relayed to different audiences. " + _GROUNDING_RULES
         )
         user = textwrap.dedent(
             f"""
-            Business-critical case ({keys}) has new activity. Summarize it.
+            Business-critical case ({keys}) has new activity. Extract the facts.
 
             CASE CONTEXT:
             {context}
@@ -96,23 +104,35 @@ class Summarizer:
             NEW COMMENT(S) SINCE LAST UPDATE:
             {comment_block}
 
-            Return ONLY valid JSON with two keys:
-            "current_status": one or two sentences on where the case stands now,
-            "whats_next": one sentence on the next action or expected step
-            (use "{_NOT_STATED}" if it cannot be inferred).
+            Return ONLY valid JSON with these keys (use "{_NOT_STATED}" when a
+            value cannot be found in the data):
+            "current_status": one or two plain-language sentences on where the case stands now,
+            "whats_next": one sentence on the next action or expected step,
+            "customer_impact": one sentence on the business/customer impact, no jargon,
+            "technical_summary": one or two sentences of technical detail for engineers.
             """
         ).strip()
 
         data = self.provider.complete_json(system, user)  # raises LLMError on failure
         allowed = {i.key for i in group}
 
-        current = guardrails.sanitize_line(data.get("current_status"), STATUS_MAX_CHARS)
-        if not current or not guardrails.is_grounded(current, allowed):
-            current = _STATUS_FALLBACK
-        nxt = guardrails.sanitize_line(data.get("whats_next"), NEXT_MAX_CHARS)
-        if not nxt or not guardrails.is_grounded(nxt, allowed):
-            nxt = _NOT_STATED
-        return {"current_status": current, "whats_next": nxt}
+        def field(key: str, max_chars: int, fallback: str) -> str:
+            value = guardrails.sanitize_line(data.get(key), max_chars)
+            if not value or not guardrails.is_grounded(value, allowed):
+                return fallback
+            return value
+
+        return {
+            "current_status": field("current_status", STATUS_MAX_CHARS, _STATUS_FALLBACK),
+            "whats_next": field("whats_next", NEXT_MAX_CHARS, _NOT_STATED),
+            "customer_impact": field("customer_impact", IMPACT_MAX_CHARS, _NOT_STATED),
+            "technical_summary": field("technical_summary", TECHNICAL_MAX_CHARS, _NOT_STATED),
+        }
+
+    def status(self, primary: "Issue", group: list["Issue"], new_comments: list["Comment"]) -> dict:
+        """Backward-compatible subset of case_facts (dashboard / legacy runner)."""
+        facts = self.case_facts(primary, group, new_comments)
+        return {"current_status": facts["current_status"], "whats_next": facts["whats_next"]}
 
     def rca(self, primary: "Issue", group: list["Issue"], comments: list["Comment"]) -> dict:
         keys = ", ".join(i.key for i in group)

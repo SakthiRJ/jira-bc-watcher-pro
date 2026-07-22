@@ -83,3 +83,47 @@ def test_rca_falls_back_on_empty_body():
     s = _summarizer({"subject": "[RCA] CON-2004", "body_html": ""})
     out = s.rca(primary, group, [build_comment("1")])
     assert "review the ticket" in out["body_html"]
+
+
+def test_case_facts_returns_all_validated_fields():
+    primary, group = _group()
+    payload = {
+        "current_status": "Vendor patch applied to CON-2004.",
+        "whats_next": "Monitor overnight.",
+        "customer_impact": "Some users could not log in.",
+        "technical_summary": "Token cache misconfig fixed.",
+    }
+    s = _summarizer(payload)
+    out = s.case_facts(primary, group, [build_comment("1")])
+    assert out["current_status"].startswith("Vendor patch")
+    assert out["customer_impact"].startswith("Some users")
+    assert out["technical_summary"].startswith("Token cache")
+
+
+def test_case_facts_falls_back_on_ungrounded_and_empty():
+    primary, group = _group()
+    payload = {
+        "current_status": "Working on it.",
+        "whats_next": "",
+        "customer_impact": "Impact traced to CON-9999.",
+        "technical_summary": "",
+    }
+    s = _summarizer(payload)
+    out = s.case_facts(primary, group, [build_comment("1")])
+    assert out["whats_next"] == "Not stated in ticket"
+    assert out["customer_impact"] == "Not stated in ticket"  # ungrounded key rejected
+    assert out["technical_summary"] == "Not stated in ticket"
+
+
+def test_status_delegates_to_case_facts():
+    primary, group = _group()
+    payload = {
+        "current_status": "All good.",
+        "whats_next": "Close it.",
+        "customer_impact": "None.",
+        "technical_summary": "n/a",
+    }
+    s = _summarizer(payload)
+    out = s.status(primary, group, [build_comment("1")])
+    assert set(out.keys()) == {"current_status", "whats_next"}
+    assert out["current_status"] == "All good."

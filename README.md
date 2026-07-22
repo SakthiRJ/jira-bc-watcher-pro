@@ -136,7 +136,8 @@ See `.env.example` for every setting. Key ones:
 | `LLM_TEMPERATURE` / `LLM_MAX_TOKENS` / `LLM_TIMEOUT_SECONDS` | Deterministic, bounded output (defaults 0 / 700 / 60). |
 | `GROQ_*` / `OPENAI_*` / `ANTHROPIC_*` | Per-provider API key, model, and base URL. |
 | `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL` | Optional generic overrides that win over the per-provider values. |
-| `SMTP_*` / `SMTP_FROM` / `EMAIL_RECIPIENTS` | Mail delivery and recipient list. |
+| `SMTP_*` / `SMTP_FROM` / `EMAIL_RECIPIENTS` | Mail delivery and default recipient list. |
+| `EMAIL_RECIPIENTS_SUPPORT/DEV/MANAGER/LEADERSHIP` | Per-audience recipient lists for recipient-tailored updates. If all empty, the general update goes to `EMAIL_RECIPIENTS`. |
 | `DRY_RUN` | Print emails instead of sending them. |
 | `STATE_FILE` | Path to the per-ticket state file (default `state.json`). |
 
@@ -214,7 +215,9 @@ The full phased plan (with testing and sign-off gates per phase) is tracked in
 - **Phase 1 (done)** - swappable `LLMProvider` (Groq now, Claude/OpenAI by config)
   with strict extract/validate/render guardrails to prevent hallucinations and cut
   token usage. Switch provider with the single `LLM_PROVIDER` env var.
-- **Phase 2+** - recipient-tailored emails (support, dev, manager, leadership), an
-  engineering RCA-approval workflow, per-project configurable grouping,
-  multi-tenant configuration, a database backend, and additional channels such as
-  Microsoft Teams.
+- **Phase 2 (done)** - recipient-tailored emails (support, dev, manager,
+  leadership) rendered in pure code from a single grounded extraction, routed by
+  per-audience recipient lists.
+- **Phase 3+** - an engineering RCA-approval workflow, per-project configurable
+  grouping, multi-tenant configuration, a database backend, and additional
+  channels such as Microsoft Teams.

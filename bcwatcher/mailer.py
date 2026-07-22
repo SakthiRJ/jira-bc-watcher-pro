@@ -16,13 +16,14 @@ class Mailer:
     def __init__(self, config: Config):
         self.config = config
 
-    def send(self, subject: str, body_html: str) -> None:
+    def send(self, subject: str, body_html: str, to: list[str] | None = None) -> None:
+        recipients = to if to is not None else self.config.recipients
         if self.config.dry_run:
-            self._print(subject, body_html)
+            self._print(subject, body_html, recipients)
             return
-        self._smtp_send(subject, body_html)
+        self._smtp_send(subject, body_html, recipients)
 
-    def _print(self, subject: str, body_html: str) -> None:
+    def _print(self, subject: str, body_html: str, recipients: list[str]) -> None:
         import os
         import sys
         # Save HTML to file - avoids Windows cp1252 emoji encoding issues on the console
@@ -36,16 +37,16 @@ class Mailer:
         print("=" * 78)
         print("[DRY_RUN] Would send email")
         print(f"  From : {self.config.smtp_from or '(SMTP_FROM not set)'}")
-        print(f"  To   : {', '.join(self.config.recipients) or '(EMAIL_RECIPIENTS not set)'}")
+        print(f"  To   : {', '.join(recipients) or '(no recipients configured)'}")
         print(f"  Subj : {safe(subject)}")
         print(f"  HTML : {out_path}")
         print("=" * 78)
 
-    def _smtp_send(self, subject: str, body_html: str) -> None:
+    def _smtp_send(self, subject: str, body_html: str, recipients: list[str]) -> None:
         msg = EmailMessage()
         name, addr = parseaddr(self.config.smtp_from)
         msg["From"] = formataddr((name or "Jira BC Watcher", addr or self.config.smtp_user))
-        msg["To"] = ", ".join(self.config.recipients)
+        msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
         msg.set_content("This update is best viewed in an HTML-capable email client.")
         msg.add_alternative(body_html, subtype="html")

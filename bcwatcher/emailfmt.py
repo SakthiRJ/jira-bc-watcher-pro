@@ -70,6 +70,81 @@ def render_progress_email(case: dict, jira_base_url: str) -> tuple[str, str]:
     return subject, body
 
 
+def _row(label: str, value: str) -> str:
+    return f'<div style="margin-top:6px"><b>{label}:</b> {value}</div>'
+
+
+def _fact(case: dict, key: str, fallback: str = "Not stated in ticket") -> str:
+    return html.escape(case.get(key) or fallback)
+
+
+# Per-audience view: which facts to show, subject prefix, and a friendly label.
+# Rendering is pure code from the single validated fact set, so notifying more
+# audiences costs no extra AI calls.
+_ROWS = {
+    "current_status": lambda c: _row("Current Status", _fact(c, "current_status")),
+    "whats_next": lambda c: _row("What's next", _fact(c, "whats_next")),
+    "customer_impact": lambda c: _row("Customer impact", _fact(c, "customer_impact")),
+    "technical_summary": lambda c: _row("Technical summary", _fact(c, "technical_summary")),
+    "owner": lambda c: _row("Owner", html.escape(c.get("owner") or "Unassigned")),
+    "priority": lambda c: _row("Priority", html.escape(c.get("priority") or "Business Critical")),
+    "last_update": lambda c: _row("Last Update", _last_update_line(c)),
+    "last_comment": lambda c: _row(
+        "Latest comment", html.escape(c.get("last_update_body") or "No recent comment")
+    ),
+}
+
+_AUDIENCE_SPECS = {
+    "support": {
+        "prefix": "[Support Update]",
+        "label": "Support",
+        "rows": ["current_status", "whats_next", "customer_impact", "last_update"],
+    },
+    "dev": {
+        "prefix": "[Engineering]",
+        "label": "Engineering",
+        "rows": ["technical_summary", "current_status", "whats_next", "last_comment", "owner"],
+    },
+    "manager": {
+        "prefix": "[BC Update]",
+        "label": "Manager",
+        "rows": ["current_status", "customer_impact", "whats_next", "owner", "priority"],
+    },
+    "leadership": {
+        "prefix": "[Business Critical]",
+        "label": "Leadership",
+        "rows": ["customer_impact", "current_status", "priority"],
+    },
+}
+
+AUDIENCES = tuple(_AUDIENCE_SPECS.keys())
+
+
+def render_audience_email(case: dict, audience: str, jira_base_url: str) -> tuple[str, str]:
+    """Render a recipient-tailored update for one audience from validated facts."""
+    spec = _AUDIENCE_SPECS.get(audience, _AUDIENCE_SPECS["support"])
+    title = _keys_title(case)
+    summary = case.get("summary", "")
+    subject = f"{spec['prefix']} {title}: {summary}"[:180]
+
+    primary = case.get("primary_key", "")
+    url = f"{jira_base_url}/browse/{primary}" if primary else "#"
+    rows_html = "".join(_ROWS[key](case) for key in spec["rows"] if key in _ROWS)
+
+    body = _wrap(
+        f'<p style="margin:0 0 8px 0;color:#6b778c">Business-critical case - {spec["label"]} update</p>'
+        '<div style="border:1px solid #dfe1e6;border-radius:8px;padding:14px 16px">'
+        '<div style="font-size:15px;font-weight:600;color:#172b4d">'
+        f'<a href="{url}" style="color:#0052cc;text-decoration:none">{html.escape(title)}</a>'
+        f' <span style="color:#6b778c;font-weight:400">| {html.escape(case.get("status", ""))}</span></div>'
+        f'<div style="margin-top:6px;color:#172b4d">{html.escape(summary)}</div>'
+        + rows_html
+        + f'<div style="margin-top:12px"><a href="{url}">Open {html.escape(primary)}</a></div>'
+        "</div>"
+    )
+    return subject, body
+
+
 def render_digest(cases: list[dict], jira_base_url: str, date_str: str) -> tuple[str, str]:
     active = [c for c in cases if c.get("status_category") != "done"]
     subject = f"Business-Critical Daily Digest - {date_str} ({len(active)} open case(s))"
