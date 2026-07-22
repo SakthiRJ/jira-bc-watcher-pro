@@ -13,7 +13,45 @@ T3/CL ticket), never as a long list of sub-tickets.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from bcwatcher.jira_client import Issue, in_scope
+
+
+@dataclass(frozen=True)
+class GroupingPolicy:
+    """How tickets are consolidated into one case. Defaults reproduce the
+    original hardcoded behavior, so an unset policy is a no-op.
+
+    Per-project overrides let different companies express their own linking
+    conventions (e.g. one Jira uses the Epic parent field, another uses issue
+    links to tie sub-tickets to their Epic).
+    """
+
+    cross_project_links: bool = True
+    epic_parent_field: bool = True
+    same_project_epic_links: bool = True
+    rollup_subtasks_to_epic: bool = True
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "GroupingPolicy":
+        data = data or {}
+        return cls(
+            cross_project_links=bool(data.get("cross_project_links", True)),
+            epic_parent_field=bool(data.get("epic_parent_field", True)),
+            same_project_epic_links=bool(data.get("same_project_epic_links", True)),
+            rollup_subtasks_to_epic=bool(data.get("rollup_subtasks_to_epic", True)),
+        )
+
+
+DEFAULT_POLICY = GroupingPolicy()
+
+
+def _policy_for(tenant, project: str) -> GroupingPolicy:
+    """Resolve the grouping policy for a project (tenant may override per project)."""
+    if tenant is None:
+        return DEFAULT_POLICY
+    return tenant.grouping_for(project)
 
 
 class _UnionFind:
@@ -38,23 +76,29 @@ class _UnionFind:
             self.parent[rb] = ra
 
 
-def build_groups(issues: dict[str, Issue], projects: list[str]) -> list[list[Issue]]:
-    """Group issues by cross-project links, Epic parent field, and same-project Epic links."""
+def build_groups(issues: dict[str, Issue], projects: list[str], tenant=None) -> list[list[Issue]]:
+    """Group issues into cases using the (optionally per-project) grouping policy.
+
+    ``tenant`` is any object exposing ``grouping_for(project) -> GroupingPolicy``;
+    when omitted, the default policy (original behavior) applies to every project.
+    """
     uf = _UnionFind()
     for key in issues:
         uf.add(key)
     for key, issue in issues.items():
+        policy = _policy_for(tenant, issue.project)
         # Cross-project links (T3 <-> CON/CL)
-        for linked in in_scope(issue.linked_keys, projects):
-            partner = issues.get(linked)
-            if partner is not None and partner.project != issue.project:
-                uf.union(key, linked)
+        if policy.cross_project_links:
+            for linked in in_scope(issue.linked_keys, projects):
+                partner = issues.get(linked)
+                if partner is not None and partner.project != issue.project:
+                    uf.union(key, linked)
         # Epic membership via the Jira parent field
-        if issue.has_epic_parent and issue.parent_key in issues:
+        if policy.epic_parent_field and issue.has_epic_parent and issue.parent_key in issues:
             uf.union(key, issue.parent_key)
         # Same-project Epic membership expressed via an issue link (this Jira
         # uses issue links instead of the parent field for CON sub-tickets).
-        if not issue.is_epic:
+        if policy.same_project_epic_links and not issue.is_epic:
             for linked in in_scope(issue.linked_keys, projects):
                 epic = issues.get(linked)
                 if epic is not None and epic.is_epic and epic.project == issue.project:
@@ -73,7 +117,7 @@ def build_groups(issues: dict[str, Issue], projects: list[str]) -> list[list[Iss
     return result
 
 
-def display_keys(members: list[Issue]) -> list[str]:
+def display_keys(members: list[Issue], tenant=None) -> list[str]:
     """Roll CON sub-tickets up to their Epic key for display.
 
     A ticket is suppressed (represented by its Epic instead) when:
@@ -91,6 +135,8 @@ def display_keys(members: list[Issue]) -> list[str]:
     def _rolls_up(m: Issue) -> bool:
         if m.is_epic:
             return False
+        if not _policy_for(tenant, m.project).rollup_subtasks_to_epic:
+            return False
         # Parent-field membership
         if m.has_epic_parent and m.parent_key in epic_keys:
             return True
@@ -105,7 +151,7 @@ def display_keys(members: list[Issue]) -> list[str]:
     def _dummy(key: str) -> Issue:
         # Fallback: if the Epic is not in our dict (shouldn't happen), use the
         # key prefix as a project approximation so we don't suppress incorrectly.
-        from jira_client import Issue as _I
+        from bcwatcher.jira_client import Issue as _I
         proj = key.split("-")[0] if "-" in key else ""
         return _I(key=key, summary="", project=proj, status="", status_category="",
                   priority="", issue_type="Epic", assignee="", updated="")

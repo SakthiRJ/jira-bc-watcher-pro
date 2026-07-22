@@ -15,7 +15,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 
-from bcwatcher import rca_store, store, subscriptions
+from bcwatcher import rca_store, store, subscriptions, tenants
 from bcwatcher.config import config
 from bcwatcher.emailfmt import render_audience_email, render_progress_email, render_rca_email
 from bcwatcher.grouping import build_groups, display_keys
@@ -102,7 +102,8 @@ def _run_scan_locked(reason: str) -> dict:
             if epic:
                 issues[epic.key] = epic
 
-    groups = build_groups(issues, config.projects)
+    tenant = tenants.default_tenant()
+    groups = build_groups(issues, config.projects, tenant)
     log(f"Loaded {len(issues)} tickets in {len(groups)} case(s); {len(bc_keys)} business critical.")
 
     known_before = state.known_keys()
@@ -150,11 +151,11 @@ def _run_scan_locked(reason: str) -> dict:
             all_comments.sort(key=lambda c: c.created)
             rca = summarizer.rca(primary, group, all_comments)
             root = group[0].key
-            keys_title = " + ".join(display_keys(group))
+            keys_title = " + ".join(display_keys(group, tenant))
             record = {
                 "id": root,
                 "primary_key": primary.key,
-                "display_keys": display_keys(group),
+                "display_keys": display_keys(group, tenant),
                 "summary": primary.summary,
                 "subject": rca["subject"],
                 "body_html": rca["body_html"],
@@ -188,7 +189,7 @@ def _run_scan_locked(reason: str) -> dict:
         root = group[0].key
         members = group
         primary = _pick_primary(members, bc_keys)
-        dkeys = display_keys(members)
+        dkeys = display_keys(members, tenant)
         active = any(not m.is_done for m in members)
 
         # newest human comment across members (for "Last Update")

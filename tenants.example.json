@@ -1,0 +1,58 @@
+{
+  "tenants": [
+    {
+      "id": "acme",
+      "name": "Acme Corp",
+      "active": true,
+      "jira": {
+        "base_url": "https://acme.atlassian.net",
+        "email": "ops@acme.com",
+        "api_token": "env:ACME_JIRA_TOKEN"
+      },
+      "projects": ["CON", "T3", "CL"],
+      "priorities": ["Business Critical"],
+      "closed_lookback_days": 3,
+      "grouping": {
+        "cross_project_links": true,
+        "epic_parent_field": true,
+        "same_project_epic_links": true,
+        "rollup_subtasks_to_epic": true
+      },
+      "grouping_overrides": {
+        "T3": { "rollup_subtasks_to_epic": false }
+      },
+      "recipients": {
+        "default": ["ops-leads@acme.com"],
+        "support": ["support-lead@acme.com"],
+        "dev": ["eng@acme.com"],
+        "manager": ["delivery-manager@acme.com"],
+        "leadership": ["head-of-ops@acme.com"],
+        "rca": ["ops-leads@acme.com", "delivery-manager@acme.com"]
+      },
+      "schedule": {
+        "poll_interval_minutes": 5,
+        "eod_hour": 19,
+        "eod_minute": 0,
+        "digest_enabled": true
+      }
+    },
+    {
+      "id": "globex",
+      "name": "Globex",
+      "active": true,
+      "jira": {
+        "base_url": "https://globex.atlassian.net",
+        "email": "it@globex.com",
+        "api_token": "enc:PASTE_A_FERNET_ENCRYPTED_TOKEN_HERE"
+      },
+      "projects": ["SUP", "PLAT"],
+      "priorities": ["Highest", "Critical"],
+      "grouping": {
+        "cross_project_links": true,
+        "epic_parent_field": true,
+        "same_project_epic_links": false,
+        "rollup_subtasks_to_epic": true
+      }
+    }
+  ]
+}

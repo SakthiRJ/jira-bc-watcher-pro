@@ -25,7 +25,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-from bcwatcher import rca_service, store, subscriptions
+from bcwatcher import rca_service, store, subscriptions, tenants
 from bcwatcher.config import config
 from bcwatcher.digest import send_digest
 from bcwatcher.emailfmt import AUDIENCES
@@ -243,6 +243,14 @@ def api_subscription_delete(email):
     if subscriptions.remove(email):
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Subscription not found"}), 404
+
+
+# --------------------------------------------------------------------------
+# Tenants (Phase 5) - read-only view, secrets redacted
+# --------------------------------------------------------------------------
+@app.route("/api/tenants")
+def api_tenants():
+    return jsonify({"tenants": [t.public_dict() for t in tenants.load_tenants()]})
 
 
 # --------------------------------------------------------------------------

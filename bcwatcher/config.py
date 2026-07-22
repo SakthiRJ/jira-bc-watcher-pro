@@ -42,6 +42,15 @@ class Config:
     jira_api_token: str = os.getenv("JIRA_API_TOKEN", "")
     projects: list[str] = field(default_factory=lambda: _list("JIRA_PROJECTS", "CON,T3,CL"))
     priority: str = os.getenv("JIRA_PRIORITY", "Business Critical")
+    # One or more priorities that count as business critical (JIRA_PRIORITIES,
+    # comma-separated). Defaults to the single JIRA_PRIORITY for back-compat.
+    priorities: list[str] = field(
+        default_factory=lambda: _list("JIRA_PRIORITIES", os.getenv("JIRA_PRIORITY", "Business Critical"))
+    )
+
+    # Multi-tenant config + secrets (Phase 5)
+    tenants_file: str = os.getenv("TENANTS_FILE", "tenants.json")
+    secrets_key: str = os.getenv("SECRETS_KEY", "")
 
     # Polling
     poll_interval_minutes: int = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))

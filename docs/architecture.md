@@ -107,3 +107,28 @@ Separate "extract facts" from "write emails":
   `EMAIL_RECIPIENTS*` lists when none are configured (backward compatible).
 - Timing (scan interval, digest time) stays a tenant-level dashboard setting;
   subscriptions only govern who gets what, not when.
+
+## Phase 5 changes (multi-tenant config, configurable grouping, secrets, preflight)
+
+- Decision: no database. The working set is a handful of open BC cases that clear
+  when their RCA is generated - kilobytes, single-writer, regenerated each scan.
+  Storage stays flat-file; a storage abstraction plus SQLite/Postgres backends are
+  documented for later (audit history / multi-node HA) but not required.
+- `bcwatcher/tenants.py`: a `Tenant` carries the Jira connection, projects,
+  priorities, grouping policy (+ per-project overrides), recipients, and schedule.
+  `load_tenants()` reads `TENANTS_FILE` (JSON); with no file it synthesizes a
+  single `default` tenant from `Config`, so existing single-tenant runs are
+  unchanged. A `Tenant` is config-compatible enough to drive `JiraClient` later.
+- `bcwatcher/grouping.py` is now policy-driven. `GroupingPolicy` gates each union
+  edge and the display rollup, resolved per project via `tenant.grouping_for()`.
+  The default policy reproduces the original behavior (the Phase 0 golden snapshot
+  is unchanged). The scanner passes the active tenant's policy.
+- `bcwatcher/secrets.py`: `resolve_secret()` handles `env:`, `enc:` (Fernet via
+  `SECRETS_KEY`), and literal values; `cryptography` is only needed for `enc:`.
+- `jira_client` builds `priority in (...)` for multiple configured priorities,
+  else `priority = "..."` (back-compat).
+- `bcwatcher/preflight.py` (`python -m bcwatcher.preflight`) validates config,
+  tenants, LLM, Jira auth, and SMTP, with a `--no-net` offline mode; it exits
+  non-zero on any hard FAIL so it can gate a deployment.
+- Auth stays token-only (decision); OAuth deferred. Concurrent multi-tenant
+  execution (per-tenant schedulers/state) is the documented next step.

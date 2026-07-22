@@ -19,3 +19,6 @@ rca_queue.json.tmp
 subscriptions.json
 subscriptions.json.tmp
 dry_run_email.html
+
+# Per-deployment tenant config (may contain secret references); use tenants.example.json as a template
+tenants.json

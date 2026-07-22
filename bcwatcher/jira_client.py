@@ -139,10 +139,19 @@ class JiraClient:
             return None
         return self._parse_issue(data)
 
+    def _priority_clause(self) -> str:
+        """`priority = "X"` for a single priority, else `priority in (...)`."""
+        prios = getattr(self.config, "priorities", None) or [self.config.priority]
+        prios = [p for p in prios if p]
+        if len(prios) <= 1:
+            return f'priority = "{prios[0] if prios else self.config.priority}"'
+        quoted = ", ".join(f'"{p}"' for p in prios)
+        return f"priority in ({quoted})"
+
     def business_critical_open(self) -> list[Issue]:
         projects = ", ".join(self.config.projects)
         jql = (
-            f'project in ({projects}) AND priority = "{self.config.priority}" '
+            f'project in ({projects}) AND {self._priority_clause()} '
             f"AND statusCategory != Done ORDER BY updated DESC"
         )
         return self.search(jql)
@@ -151,7 +160,7 @@ class JiraClient:
         projects = ", ".join(self.config.projects)
         days = self.config.closed_lookback_days
         jql = (
-            f'project in ({projects}) AND priority = "{self.config.priority}" '
+            f'project in ({projects}) AND {self._priority_clause()} '
             f"AND statusCategory = Done AND updated >= -{days}d ORDER BY updated DESC"
         )
         return self.search(jql)

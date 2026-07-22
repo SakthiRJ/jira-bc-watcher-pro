@@ -190,6 +190,9 @@ jira-bc-watcher-pro/
 │  ├─ rca_store.py             # persistent RCA approval queue + state machine
 │  ├─ rca_service.py           # RCA approve/reject/broadcast logic (Flask-free)
 │  ├─ subscriptions.py         # per-recipient routing (events + scope) with guardrails
+│  ├─ tenants.py               # multi-tenant config (Jira, scope, grouping, recipients)
+│  ├─ secrets.py               # env:/enc: secret resolution (Fernet)
+│  ├─ preflight.py             # pre-first-test config + connectivity checks
 │  ├─ notifier.py              # dispatch a notification to subscribers across channels
 │  ├─ channels/                # delivery channels (email now; Teams etc. later)
 │  ├─ guardrails.py           # anti-hallucination validation (grounding, sanitisation)
@@ -236,5 +239,12 @@ The full phased plan (with testing and sign-off gates per phase) is tracked in
   guardrails. All sends route through a channel abstraction (email now, Teams
   later). Timing stays a tenant-level setting; the `EMAIL_RECIPIENTS*` lists are
   the fallback when no subscriptions exist.
-- **Phase 5+** - per-project configurable grouping, multi-tenant configuration, a
-  database backend, and additional channels such as Microsoft Teams.
+- **Phase 5 (done)** - multi-tenant configuration (`tenants.json`), configurable
+  per-project grouping policies, encrypted secrets (`env:` / `enc:`), multiple
+  priorities, and a `preflight` validation command. No database: the data is tiny
+  and clears when an RCA is generated, so storage stays flat-file (SQLite/Postgres
+  are drop-in later if audit history/HA is needed).
+- **Phase 6** - on-prem deployment hardening (Docker, SSO/RBAC, observability),
+  plus concurrent multi-tenant execution.
+- **Phase 7** - Microsoft Teams channel (drops into the Phase 3 channel
+  abstraction).
