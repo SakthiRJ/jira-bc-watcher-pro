@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Business-Critical Watcher</title>
+<style>
+  :root {
+    --bg:#f4f5f7;--card:#fff;--ink:#172b4d;--muted:#6b778c;--line:#dfe1e6;
+    --blue:#0052cc;--green:#00875a;--amber:#ff8b00;--red:#de350b;--chip:#ebecf0;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;font-size:14px;}
+  header{background:#fff;border-bottom:1px solid var(--line);padding:12px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:10;}
+  header h1{font-size:17px;margin:0;white-space:nowrap;}
+  .grow{flex:1;}
+  .meta{color:var(--muted);font-size:12.5px;white-space:nowrap;}
+  .wrap{max-width:1060px;margin:18px auto;padding:0 18px;}
+  button{font:inherit;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:6px;padding:7px 13px;cursor:pointer;}
+  button:hover{background:#f0f1f3;}
+  button.primary{background:var(--blue);border-color:var(--blue);color:#fff;}
+  button.primary:hover{background:#0747a6;}
+  button:disabled{opacity:.55;cursor:default;}
+
+  /* Settings panel */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin-bottom:16px;}
+  .panel h2{font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
+  .settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;align-items:end;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;}
+  .field input[type="number"],.field input[type="time"]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;}
+  .check{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;}
+  .check input{width:15px;height:15px;}
+  .save-row{margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .saved{color:var(--green);font-size:12.5px;opacity:0;transition:opacity .2s;}
+  .saved.show{opacity:1;}
+  .sched{color:var(--muted);font-size:12px;flex:1;text-align:right;}
+
+  /* Filter bar */
+  .filter-bar{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center;}
+  .filter-bar span{color:var(--muted);font-size:12.5px;margin-right:4px;}
+  .fbtn{padding:5px 14px;border-radius:20px;font-size:13px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--muted);}
+  .fbtn:hover{background:#f0f1f3;}
+  .fbtn.active{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600;}
+  .count-badge{background:#ebecf0;color:var(--muted);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;}
+  .fbtn.active .count-badge{background:rgba(255,255,255,.25);color:#fff;}
+
+  /* Case cards */
+  .case{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:12px;}
+  .case.done-card{border-left:3px solid var(--green);opacity:.85;}
+  .case-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  .keys a{color:var(--blue);text-decoration:none;font-weight:700;font-size:15px;}
+  .keys a:hover{text-decoration:underline;}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:2px;}
+  .chip{border-radius:20px;padding:2px 10px;font-size:12px;font-weight:500;}
+  .chip.type-chip{background:#f0f1f3;color:var(--muted);}
+  .chip.new{background:#deebff;color:#0747a6;}
+  .chip.indeterminate{background:#fff0b3;color:#974f00;}
+  .chip.done{background:#e3fcef;color:var(--green);}
+  .chip.noupd{background:#fff0b3;color:#974f00;}
+  .chip.upd{background:#e3fcef;color:var(--green);}
+  .summary{font-weight:600;font-size:14px;color:var(--ink);margin-bottom:12px;}
+  .fields{display:flex;flex-direction:column;gap:8px;}
+  .frow{display:grid;grid-template-columns:130px 1fr;gap:8px 14px;align-items:baseline;}
+  .flbl{font-weight:600;color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.03em;}
+  .fval{color:var(--ink);line-height:1.55;}
+  .fval.muted{color:var(--muted);font-style:italic;}
+  .comment-snippet{margin-top:4px;color:var(--muted);font-style:italic;font-size:13px;border-left:3px solid var(--line);padding-left:8px;}
+
+  /* Empty + banner */
+  .empty{color:var(--muted);text-align:center;padding:40px 20px;}
+  .banner{background:#fffae6;border:1px solid #ffe380;color:#7a5b00;border-radius:8px;padding:8px 14px;font-size:12.5px;margin-bottom:14px;}
+
+  /* Spinner + toast */
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid #c1c7d0;border-top-color:var(--blue);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;padding:11px 16px;border-radius:8px;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;z-index:999;}
+  .toast.show{opacity:1;transform:none;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Business-Critical Watcher</h1>
+  <div class="grow"></div>
+  <span id="status" class="meta"></span>
+  <button id="scanBtn" class="primary">Scan now</button>
+  <button id="digestBtn">Send digest now</button>
+</header>
+
+<div class="wrap">
+
+  <div class="panel">
+    <h2>Automation settings</h2>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="interval">Scan every (minutes)</label>
+        <input type="number" id="interval" min="1" max="1440" />
+      </div>
+      <div class="field">
+        <label for="eod">End-of-day digest time</label>
+        <input type="time" id="eod" />
+      </div>
+      <div class="field">
+        <div class="check"><input type="checkbox" id="digestEnabled" /><label for="digestEnabled" style="margin:0">Send end-of-day digest email</label></div>
+        <div class="check"><input type="checkbox" id="realtime" /><label for="realtime" style="margin:0">Email each new update in real time</label></div>
+        <div class="check"><input type="checkbox" id="rca" /><label for="rca" style="margin:0">Email RCA when a case closes</label></div>
+      </div>
+    </div>
+    <div class="save-row">
+      <button id="saveBtn" class="primary">Save settings</button>
+      <span id="saved" class="saved">Saved</span>
+      <span id="nextRuns" class="sched"></span>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <span>Show:</span>
+    <button class="fbtn active" data-filter="all" onclick="setFilter('all')">All open <span class="count-badge" id="cnt-all">-</span></button>
+    <button class="fbtn" data-filter="inprogress" onclick="setFilter('inprogress')">In Progress <span class="count-badge" id="cnt-inprogress">-</span></button>
+    <button class="fbtn" data-filter="onhold" onclick="setFilter('onhold')">On Hold <span class="count-badge" id="cnt-onhold">-</span></button>
+    <button class="fbtn" data-filter="new" onclick="setFilter('new')">To Do <span class="count-badge" id="cnt-new">-</span></button>
+  </div>
+
+  <div id="cases"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function fmtWhen(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso.replace("T"," ").slice(0,16);
+    return d.toLocaleString([], {day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  } catch { return iso.replace("T"," ").slice(0,16); }
+}
+function cleanText(s) {
+  // Strip Jira wiki markup and @mention tokens for clean display
+  return (s||'')
+    .replace(/\[~accountid:[^\]]+\]/g, '')
+    .replace(/\[([^|\]]+)\|[^\]]+\]/g, '$1')
+    .replace(/h[1-6]\. /g, '')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/\{\{([^}]+)\}\}/g, '$1')
+    .trim();
+}
+function esc(s) {
+  return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function toast(msg) {
+  const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),5000);
+}
+
+let JIRA_BASE = "";
+let ALL_CASES = [];
+let currentFilter = "all";
+
+function catOf(c) {
+  const st = (c.status||"").toLowerCase();
+  if (c.status_category === "done") return "done";
+  if (st.includes("hold")) return "onhold";
+  if (c.status_category === "new") return "new";
+  return "inprogress";
+}
+
+function counts(cases) {
+  const r = {all:0, inprogress:0, onhold:0, new:0};
+  cases.forEach(c => {
+    const cat = catOf(c);
+    if (cat === "done") return;
+    r.all++;
+    if (r[cat] !== undefined) r[cat]++;
+  });
+  return r;
+}
+
+function filterCases(cases) {
+  // Never show done/closed cases in any view
+  const open = cases.filter(c => c.status_category !== "done");
+  if (currentFilter === "all") return open;
+  return open.filter(c => catOf(c) === currentFilter);
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll(".fbtn").forEach(b => b.classList.toggle("active", b.dataset.filter === f));
+  renderCases();
+}
+
+function caseCard(c) {
+  const keys = (c.display_keys && c.display_keys.length ? c.display_keys : [c.primary_key]);
+  const primary = c.primary_key || keys[0];
+  const url = primary ? `${JIRA_BASE}/browse/${primary}` : "#";
+  const cat = c.status_category || "";
+  const isDone = cat === "done";
+
+  // Status chip colour matches status_category
+  const statusHtml = `<span class="chip ${cat}">${esc(c.status||"")}</span>`;
+  const typeHtml = c.type ? `<span class="chip type-chip">${esc(c.type)}</span>` : "";
+  let updateBadge = "";
+  if (!isDone) {
+    updateBadge = c.no_update
+      ? '<span class="chip noupd">No new update</span>'
+      : '<span class="chip upd">Updated</span>';
+  }
+
+  // Description
+  const desc = (c.description && c.description !== "Not stated in ticket")
+    ? esc(cleanText(c.description))
+    : `<span class="fval muted">Not provided in ticket</span>`;
+
+  // Current Status - always show last known AI text; no_update just adds the badge above
+  let currStatus = "";
+  if (c.current_status && c.current_status !== "No update since last check" && c.current_status !== "Closed") {
+    currStatus = esc(c.current_status);
+  } else if (isDone) {
+    currStatus = "Resolved / Closed";
+  } else {
+    currStatus = `<span class="fval muted">Awaiting first AI analysis</span>`;
+  }
+
+  // Last Update - date, author, comment snippet
+  let lastUpdateHtml = "";
+  if (c.last_update_author && c.last_update_time) {
+    const cleaned = cleanText(c.last_update_body || "");
+    lastUpdateHtml = `<strong>${esc(c.last_update_author)}</strong>&nbsp;&middot;&nbsp;${fmtWhen(c.last_update_time)}`;
+    if (cleaned) {
+      lastUpdateHtml += `<div class="comment-snippet">${esc(cleaned)}</div>`;
+    } else if (c.last_update_body) {
+      lastUpdateHtml += `<div class="comment-snippet fval muted">(Automated or mention-only comment)</div>`;
+    }
+  } else {
+    lastUpdateHtml = `<span class="fval muted">No comments on record</span>`;
+  }
+
+  // What's next
+  const whatsNext = (c.whats_next && c.whats_next !== "Not stated in ticket" && c.whats_next !== "None")
+    ? esc(c.whats_next)
+    : `<span class="fval muted">Not stated in ticket</span>`;
+
+  return `
+<div class="case${isDone ? " done-card" : ""}">
+  <div class="case-head">
+    <div>
+      <div class="keys"><a href="${url}" target="_blank" rel="noopener">${keys.map(esc).join(" + ")}</a></div>
+      <div class="badges">${typeHtml}${statusHtml}${updateBadge}</div>
+    </div>
+  </div>
+  <div class="summary">${esc(c.summary||"")}</div>
+  <div class="fields">
+    <div class="frow"><div class="flbl">Description</div><div class="fval">${desc}</div></div>
+    <div class="frow"><div class="flbl">Current Status</div><div class="fval">${currStatus}</div></div>
+    <div class="frow"><div class="flbl">Last Update</div><div class="fval">${lastUpdateHtml}</div></div>
+    <div class="frow"><div class="flbl">What's next</div><div class="fval">${whatsNext}</div></div>
+  </div>
+</div>`;
+}
+
+function renderCases() {
+  const filtered = filterCases(ALL_CASES);
+  $("cases").innerHTML = filtered.length
+    ? filtered.map(caseCard).join("")
+    : `<div class="empty">No ${currentFilter === "all" ? "open" : currentFilter.replace("inprogress","In Progress").replace("onhold","On Hold").replace("new","To Do")} cases found.</div>`;
+}
+
+async function loadSettings() {
+  const s = await (await fetch("/api/settings")).json();
+  $("interval").value = s.poll_interval_minutes;
+  $("eod").value = String(s.eod_hour).padStart(2,"0") + ":" + String(s.eod_minute).padStart(2,"0");
+  $("digestEnabled").checked = !!s.digest_enabled;
+  $("realtime").checked = !!s.realtime_emails;
+  $("rca").checked = !!s.rca_emails;
+}
+
+async function saveSettings() {
+  const [h,m] = ($("eod").value||"19:00").split(":").map(Number);
+  const body = {
+    poll_interval_minutes: parseInt($("interval").value||"5",10),
+    eod_hour:h, eod_minute:m,
+    digest_enabled:$("digestEnabled").checked,
+    realtime_emails:$("realtime").checked,
+    rca_emails:$("rca").checked,
+  };
+  $("saveBtn").disabled = true;
+  const r = await (await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+  $("saveBtn").disabled = false;
+  if (r.ok) { $("saved").classList.add("show"); setTimeout(()=>$("saved").classList.remove("show"),1600); loadResults(); }
+}
+
+async function loadResults() {
+  const data = await (await fetch("/api/results")).json();
+  JIRA_BASE = data.jira_base_url || JIRA_BASE;
+  const dry = data.dry_run;
+
+
+  $("status").innerHTML = data.scanning
+    ? '<span class="spin"></span> scanning...'
+    : (data.last_scan ? "Last scan: " + fmtWhen(data.last_scan) : "No scan yet");
+
+  const sched = data.schedule || {};
+  const bits = [];
+  if (sched.next_scan) bits.push("Next scan: " + fmtWhen(sched.next_scan));
+  if (sched.next_digest) bits.push("Next digest: " + fmtWhen(sched.next_digest));
+  $("nextRuns").textContent = bits.join("  \u2022  ");
+
+  ALL_CASES = data.cases || [];
+  const c = counts(ALL_CASES);
+  ["all","inprogress","onhold","new"].forEach(k => {
+    const el = $("cnt-"+k);
+    if (el) el.textContent = c[k] || 0;
+  });
+  renderCases();
+}
+
+$("saveBtn").onclick = saveSettings;
+$("scanBtn").onclick = async () => {
+  $("scanBtn").disabled = true;
+  await fetch("/api/scan",{method:"POST"});
+  toast("Scan started - results refresh automatically");
+  setTimeout(()=>{ $("scanBtn").disabled=false; loadResults(); },1500);
+};
+$("digestBtn").onclick = async () => {
+  $("digestBtn").disabled = true;
+  const r = await (await fetch("/api/digest",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({scan_first:false})
+  })).json();
+  $("digestBtn").disabled = false;
+  if (r.ok) {
+    if (r.dry_run) {
+      const t = $("toast");
+      t.innerHTML = 'Digest ready (DRY RUN) &mdash; <a href="/digest-preview" target="_blank" style="color:#90cdf4;text-decoration:underline">Open preview</a>';
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 6000);
+    } else {
+      toast("Digest email sent: " + (r.subject || ""));
+    }
+  } else {
+    toast("Digest failed: " + (r.error || "unknown error"));
+  }
+};
+
+loadSettings();
+loadResults();
+setInterval(loadResults, 15000);
+</script>
+</body>
+</html>

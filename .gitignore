@@ -1,0 +1,17 @@
+# Secrets / local config
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime artifacts (regenerated at run time)
+*.log
+state.json
+state.json.tmp
+results.json
+results.json.tmp
+settings.json
+dry_run_email.html
