@@ -103,6 +103,7 @@
         <div class="check"><input type="checkbox" id="digestEnabled" /><label for="digestEnabled" style="margin:0">Send end-of-day digest email</label></div>
         <div class="check"><input type="checkbox" id="realtime" /><label for="realtime" style="margin:0">Email each new update in real time</label></div>
         <div class="check"><input type="checkbox" id="rca" /><label for="rca" style="margin:0">Email RCA when a case closes</label></div>
+        <div class="check"><input type="checkbox" id="rcaApproval" /><label for="rcaApproval" style="margin:0">Require engineering approval before sending RCA</label></div>
       </div>
     </div>
     <div class="save-row">
@@ -110,6 +111,11 @@
       <span id="saved" class="saved">Saved</span>
       <span id="nextRuns" class="sched"></span>
     </div>
+  </div>
+
+  <div id="rcaPanel" class="panel" style="display:none;border-left:3px solid var(--amber)">
+    <h2>Pending RCA approvals</h2>
+    <div id="rcaList"></div>
   </div>
 
   <div class="filter-bar">
@@ -274,6 +280,7 @@ async function loadSettings() {
   $("digestEnabled").checked = !!s.digest_enabled;
   $("realtime").checked = !!s.realtime_emails;
   $("rca").checked = !!s.rca_emails;
+  $("rcaApproval").checked = !!s.rca_approval_required;
 }
 
 async function saveSettings() {
@@ -284,6 +291,7 @@ async function saveSettings() {
     digest_enabled:$("digestEnabled").checked,
     realtime_emails:$("realtime").checked,
     rca_emails:$("rca").checked,
+    rca_approval_required:$("rcaApproval").checked,
   };
   $("saveBtn").disabled = true;
   const r = await (await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
@@ -314,6 +322,56 @@ async function loadResults() {
     if (el) el.textContent = c[k] || 0;
   });
   renderCases();
+  loadRca();
+}
+
+function rcaCard(r) {
+  const keys = (r.display_keys && r.display_keys.length ? r.display_keys : [r.primary_key]).map(esc).join(" + ");
+  const url = r.primary_key ? `${JIRA_BASE}/browse/${r.primary_key}` : "#";
+  return `
+<div style="border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+  <div class="keys"><a href="${url}" target="_blank" rel="noopener">${keys}</a></div>
+  <div style="color:var(--muted);margin:4px 0 8px">${esc(r.subject||"")}</div>
+  <details style="margin-bottom:8px">
+    <summary style="cursor:pointer;color:var(--blue)">Preview RCA</summary>
+    <div style="border:1px solid var(--line);border-radius:6px;padding:10px;margin-top:8px;background:#fafbfc">${r.body_html||""}</div>
+  </details>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="appr-${r.id}" placeholder="Your name" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px" />
+    <button class="primary" onclick="approveRca('${r.id}')">Approve &amp; send</button>
+    <button onclick="rejectRca('${r.id}')">Reject</button>
+  </div>
+</div>`;
+}
+
+async function loadRca() {
+  try {
+    const data = await (await fetch("/api/rca")).json();
+    const pending = (data.records||[]).filter(r => r.status === "pending_approval");
+    const panel = $("rcaPanel");
+    if (!pending.length) { panel.style.display = "none"; $("rcaList").innerHTML = ""; return; }
+    panel.style.display = "";
+    $("rcaList").innerHTML = pending.map(rcaCard).join("");
+  } catch (e) { /* ignore transient errors */ }
+}
+
+async function approveRca(id) {
+  const approver = ($("appr-"+id)?.value||"").trim();
+  const r = await (await fetch(`/api/rca/${encodeURIComponent(id)}/approve`, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({approver})
+  })).json();
+  if (r.ok) { toast(r.dry_run ? "RCA approved (DRY RUN - not emailed)" : "RCA approved & sent"); loadRca(); loadResults(); }
+  else toast("Approve failed: " + (r.error||"error"));
+}
+
+async function rejectRca(id) {
+  const reason = prompt("Reason for rejecting this RCA? (optional)") || "";
+  const approver = ($("appr-"+id)?.value||"").trim();
+  const r = await (await fetch(`/api/rca/${encodeURIComponent(id)}/reject`, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({approver, reason})
+  })).json();
+  if (r.ok) { toast("RCA rejected"); loadRca(); }
+  else toast("Reject failed: " + (r.error||"error"));
 }
 
 $("saveBtn").onclick = saveSettings;

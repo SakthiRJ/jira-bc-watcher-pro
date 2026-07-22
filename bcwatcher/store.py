@@ -18,6 +18,7 @@ DEFAULT_SETTINGS = {
     "poll_interval_minutes": 5,
     "realtime_emails": True,   # email each new comment as it arrives
     "rca_emails": True,        # email an RCA when a case closes
+    "rca_approval_required": True,  # queue RCAs for engineering sign-off before broadcast
     "digest_enabled": True,    # send one consolidated email at end of day
     "eod_hour": 19,
     "eod_minute": 0,
@@ -50,7 +51,7 @@ def save_settings(new_values: dict) -> dict:
         data["poll_interval_minutes"] = max(1, int(data.get("poll_interval_minutes", 5)))
         data["eod_hour"] = min(23, max(0, int(data.get("eod_hour", 19))))
         data["eod_minute"] = min(59, max(0, int(data.get("eod_minute", 0))))
-        for flag in ("realtime_emails", "rca_emails", "digest_enabled"):
+        for flag in ("realtime_emails", "rca_emails", "rca_approval_required", "digest_enabled"):
             data[flag] = bool(data.get(flag))
         _atomic_write(SETTINGS_FILE, data)
         return data

@@ -145,6 +145,26 @@ def render_audience_email(case: dict, audience: str, jira_base_url: str) -> tupl
     return subject, body
 
 
+def render_rca_email(record: dict, jira_base_url: str) -> tuple[str, str]:
+    """Render the final RCA email from a queued record.
+
+    ``body_html`` was already sanitised by the guardrails when generated (and
+    again if an approver edited it), so it is trusted here.
+    """
+    keys_title = " + ".join(record.get("display_keys") or [record.get("primary_key", "")])
+    primary = record.get("primary_key", "")
+    summary = record.get("summary", "")
+    subject = record.get("subject") or f"[RCA] {keys_title}"
+    url = f"{jira_base_url}/browse/{primary}" if primary else "#"
+    body = _wrap(
+        f'<h2 style="color:#172b4d;margin:0 0 10px 0">RCA: {html.escape(keys_title)}</h2>'
+        f'<p style="color:#6b778c;margin:0 0 14px 0">{html.escape(primary)} - {html.escape(summary)}</p>'
+        + (record.get("body_html") or "")
+        + f'<p style="margin-top:14px"><a href="{url}">Open {html.escape(primary)}</a></p>'
+    )
+    return subject, body
+
+
 def render_digest(cases: list[dict], jira_base_url: str, date_str: str) -> tuple[str, str]:
     active = [c for c in cases if c.get("status_category") != "done"]
     subject = f"Business-Critical Daily Digest - {date_str} ({len(active)} open case(s))"

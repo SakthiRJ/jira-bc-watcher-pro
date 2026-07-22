@@ -25,7 +25,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-from bcwatcher import store
+from bcwatcher import rca_service, store
 from bcwatcher.config import config
 from bcwatcher.digest import send_digest
 from bcwatcher.scanner import run_scan
@@ -142,6 +142,7 @@ def api_settings():
             "poll_interval_minutes",
             "realtime_emails",
             "rca_emails",
+            "rca_approval_required",
             "digest_enabled",
             "eod_hour",
             "eod_minute",
@@ -175,6 +176,44 @@ def api_digest():
     except Exception as exc:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True, **result})
+
+
+# --------------------------------------------------------------------------
+# RCA approval workflow (Phase 4)
+# --------------------------------------------------------------------------
+@app.route("/api/rca")
+def api_rca_list():
+    return jsonify({"records": rca_service.list_records()})
+
+
+@app.route("/api/rca/<rca_id>/approve", methods=["POST"])
+def api_rca_approve(rca_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        record = rca_service.approve(
+            rca_id,
+            approver=(payload.get("approver") or "engineering").strip(),
+            edited_body=payload.get("body_html"),
+        )
+    except KeyError:
+        return jsonify({"ok": False, "error": "RCA not found"}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "record": record, "dry_run": config.dry_run})
+
+
+@app.route("/api/rca/<rca_id>/reject", methods=["POST"])
+def api_rca_reject(rca_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        record = rca_service.reject(
+            rca_id,
+            approver=(payload.get("approver") or "engineering").strip(),
+            reason=payload.get("reason", ""),
+        )
+    except KeyError:
+        return jsonify({"ok": False, "error": "RCA not found"}), 404
+    return jsonify({"ok": True, "record": record})
 
 
 # --------------------------------------------------------------------------

@@ -88,6 +88,8 @@ class Config:
     recipients_dev: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_DEV", ""))
     recipients_manager: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_MANAGER", ""))
     recipients_leadership: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_LEADERSHIP", ""))
+    # RCA broadcast list (Phase 4). Falls back to EMAIL_RECIPIENTS when empty.
+    recipients_rca: list[str] = field(default_factory=lambda: _list("EMAIL_RECIPIENTS_RCA", ""))
 
     # Behaviour
     dry_run: bool = _bool("DRY_RUN", True)
@@ -144,6 +146,10 @@ class Config:
             "leadership": self.recipients_leadership,
         }
         return {audience: recips for audience, recips in mapping.items() if recips}
+
+    def rca_recipients(self) -> list[str]:
+        """Who receives an approved RCA (dedicated list, else the default list)."""
+        return self.recipients_rca or self.recipients
 
     def validate(self) -> list[str]:
         """Return a list of human-readable problems (empty means OK)."""

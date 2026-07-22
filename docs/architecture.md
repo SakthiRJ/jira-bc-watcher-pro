@@ -68,3 +68,21 @@ Separate "extract facts" from "write emails":
   falls back to the single general update to `EMAIL_RECIPIENTS`.
 - `Mailer.send` accepts a per-message recipient override so each audience email
   goes only to its list.
+
+## Phase 4 changes (RCA approval workflow)
+
+- When a case closes, the RCA is generated once and parked in a persistent queue
+  (`bcwatcher/rca_store.py`, `rca_queue.json`) as `pending_approval` instead of
+  being emailed. State machine: `pending_approval -> approved -> sent`, or
+  `pending_approval -> rejected`. Records are keyed by case root, so re-scans
+  update the same record and an already-`sent` RCA is never resurrected.
+- `bcwatcher/rca_service.py` is the Flask-free approval logic: `approve()`
+  broadcasts to `Config.rca_recipients()` (dedicated `EMAIL_RECIPIENTS_RCA` list,
+  else `EMAIL_RECIPIENTS`) and marks the record `sent`; `reject()` records the
+  reason. Approver edits are re-run through the guardrails before sending.
+- `emailfmt.render_rca_email` is the single reusable RCA wrapper (shared by the
+  scanner legacy direct-send path and the approval service).
+- The dashboard gains a "Pending RCA approvals" panel with per-RCA preview and
+  Approve/Reject actions, backed by `/api/rca`, `/api/rca/<id>/approve`, and
+  `/api/rca/<id>/reject`. A `rca_approval_required` setting (default on) gates the
+  workflow; turning it off restores the immediate-send behavior.

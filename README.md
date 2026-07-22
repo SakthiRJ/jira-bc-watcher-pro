@@ -38,8 +38,10 @@ Each run ("cycle"):
    case (union-find over Jira issue links, with same-Epic sub-tickets rolled up).
 3. For a case with a **new human comment** since the last cycle, an LLM (via Groq)
    writes a short stakeholder update, which is emailed.
-4. For a case whose ticket just moved to a Done status, the LLM writes an RCA,
-   which is emailed.
+4. For a case whose ticket just moved to a Done status, the LLM writes an RCA.
+   By default it is queued for engineering approval on the dashboard and only
+   emailed to stakeholders once approved (toggle `rca_approval_required` off to
+   send immediately).
 
 State is kept in `state.json` so the same comment is never emailed twice. The first
 time it sees any ticket it records a silent baseline, so it never floods
@@ -185,6 +187,8 @@ jira-bc-watcher-pro/
 │  ├─ grouping.py             # groups linked tickets into cases; rolls sub-tickets up to their Epic
 │  ├─ jira_client.py          # Jira REST client (search, comments, linked issues)
 │  ├─ summarizer.py           # extract -> validate -> render (progress + RCA)
+│  ├─ rca_store.py             # persistent RCA approval queue + state machine
+│  ├─ rca_service.py           # RCA approve/reject/broadcast logic (Flask-free)
 │  ├─ guardrails.py           # anti-hallucination validation (grounding, sanitisation)
 │  ├─ llm/                    # pluggable LLM providers (Groq, OpenAI/Azure, Anthropic)
 │  ├─ mailer.py               # SMTP sender with dry-run mode
@@ -218,6 +222,12 @@ The full phased plan (with testing and sign-off gates per phase) is tracked in
 - **Phase 2 (done)** - recipient-tailored emails (support, dev, manager,
   leadership) rendered in pure code from a single grounded extraction, routed by
   per-audience recipient lists.
-- **Phase 3+** - an engineering RCA-approval workflow, per-project configurable
-  grouping, multi-tenant configuration, a database backend, and additional
-  channels such as Microsoft Teams.
+- **Phase 4 (done)** - engineering RCA-approval workflow: a closing case queues
+  its RCA for sign-off on the dashboard (state machine
+  `pending_approval -> approved -> sent`) and only broadcasts once approved.
+  Approver edits are re-sanitised; a dedicated `EMAIL_RECIPIENTS_RCA` list can
+  target the broadcast.
+- **Phase 3** - notification routing, subscriptions, and per-user delivery
+  preferences (timing stays at tenant level).
+- **Phase 5+** - per-project configurable grouping, multi-tenant configuration, a
+  database backend, and additional channels such as Microsoft Teams.

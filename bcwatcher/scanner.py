@@ -15,9 +15,9 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 
-from bcwatcher import store
+from bcwatcher import rca_store, store
 from bcwatcher.config import config
-from bcwatcher.emailfmt import _wrap, render_audience_email, render_progress_email
+from bcwatcher.emailfmt import render_audience_email, render_progress_email, render_rca_email
 from bcwatcher.grouping import build_groups, display_keys
 from bcwatcher.jira_client import Comment, Issue, JiraClient, in_scope
 from bcwatcher.mailer import Mailer
@@ -127,7 +127,8 @@ def _run_scan_locked(reason: str) -> dict:
         if key not in known_before:
             baseline(issue)
 
-    rca_roots: set[str] = set()
+    # root key -> dashboard status label for a just-closed case this cycle.
+    rca_roots: dict[str, str] = {}
     # Keys whose AI/email step failed this cycle. We deliberately do NOT advance
     # their state pointers below so the case is retried on the next scan instead
     # of being silently skipped.
@@ -147,19 +148,32 @@ def _run_scan_locked(reason: str) -> dict:
                 all_comments.extend(comments_of(m.key))
             all_comments.sort(key=lambda c: c.created)
             rca = summarizer.rca(primary, group, all_comments)
-            if settings.get("rca_emails", True):
-                keys_title = " + ".join(display_keys(group))
-                body = _wrap(
-                    f'<h2 style="color:#172b4d;margin:0 0 10px 0">RCA: {keys_title}</h2>'
-                    f'<p style="color:#6b778c;margin:0 0 14px 0">{primary.key} - {primary.summary}</p>'
-                    + rca["body_html"]
-                    + f'<p style="margin-top:14px"><a href="{config.jira_base_url}/browse/{primary.key}">'
-                    f"Open {primary.key}</a></p>"
+            root = group[0].key
+            keys_title = " + ".join(display_keys(group))
+            record = {
+                "id": root,
+                "primary_key": primary.key,
+                "display_keys": display_keys(group),
+                "summary": primary.summary,
+                "subject": rca["subject"],
+                "body_html": rca["body_html"],
+            }
+            if settings.get("rca_approval_required", True):
+                # Park for engineering sign-off; do NOT broadcast yet.
+                rca_store.upsert({**record, "status": rca_store.PENDING})
+                rca_roots[root] = "Closed - RCA pending approval"
+                log(f"RCA for {keys_title} queued for engineering approval.")
+            elif settings.get("rca_emails", True):
+                subject, body = render_rca_email(record, config.jira_base_url)
+                mailer.send(subject, body, to=config.rca_recipients())
+                rca_store.upsert(
+                    {**record, "status": rca_store.SENT, "sent_at": datetime.now(timezone.utc).isoformat()}
                 )
-                mailer.send(rca["subject"], body)
+                rca_roots[root] = "Closed - RCA sent"
                 log(f"RCA email for closed case {keys_title}.")
+            else:
+                rca_roots[root] = "Closed"
             state.mark_rca_sent(key)
-            rca_roots.add(group[0].key)
         except Exception as exc:  # noqa: BLE001 - one bad case must not abort the scan
             failed_rca_keys.add(key)
             log(f"RCA failed for {key}: {exc}. Will retry next cycle.")
@@ -214,7 +228,7 @@ def _run_scan_locked(reason: str) -> dict:
         }
 
         if root in rca_roots:
-            case["current_status"] = "Closed - RCA sent"
+            case["current_status"] = rca_roots[root]
             case["whats_next"] = "None"
         elif new_comments:
             new_comments.sort(key=lambda c: c.created)

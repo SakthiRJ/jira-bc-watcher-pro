@@ -14,4 +14,6 @@ state.json.tmp
 results.json
 results.json.tmp
 settings.json
+rca_queue.json
+rca_queue.json.tmp
 dry_run_email.html
