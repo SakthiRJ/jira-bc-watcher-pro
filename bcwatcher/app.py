@@ -25,9 +25,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-from bcwatcher import rca_service, store
+from bcwatcher import rca_service, store, subscriptions
 from bcwatcher.config import config
 from bcwatcher.digest import send_digest
+from bcwatcher.emailfmt import AUDIENCES
 from bcwatcher.scanner import run_scan
 
 SCAN_JOB_ID = "bc_scan"
@@ -214,6 +215,34 @@ def api_rca_reject(rca_id):
     except KeyError:
         return jsonify({"ok": False, "error": "RCA not found"}), 404
     return jsonify({"ok": True, "record": record})
+
+
+# --------------------------------------------------------------------------
+# Notification subscriptions (Phase 3)
+# --------------------------------------------------------------------------
+@app.route("/api/subscriptions", methods=["GET", "POST"])
+def api_subscriptions():
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        try:
+            record = subscriptions.add(payload)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "subscription": record})
+    return jsonify({
+        "subscriptions": subscriptions.load_all(),
+        "audiences": list(AUDIENCES),
+        "events": list(subscriptions.EVENTS),
+        "channels": list(subscriptions.KNOWN_CHANNELS),
+        "projects": config.projects,
+    })
+
+
+@app.route("/api/subscriptions/<path:email>", methods=["DELETE"])
+def api_subscription_delete(email):
+    if subscriptions.remove(email):
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Subscription not found"}), 404
 
 
 # --------------------------------------------------------------------------

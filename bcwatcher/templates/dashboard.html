@@ -113,6 +113,27 @@
     </div>
   </div>
 
+  <div class="panel">
+    <h2>Notification subscriptions</h2>
+    <div class="settings-grid">
+      <div class="field"><label for="subEmail">Email</label><input id="subEmail" type="email" placeholder="person@company.com" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit" /></div>
+      <div class="field"><label for="subName">Name (optional)</label><input id="subName" type="text" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit" /></div>
+      <div class="field"><label for="subAudience">Audience view</label><select id="subAudience" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit"></select></div>
+      <div class="field"><label for="subProjects">Projects (blank = all)</label><input id="subProjects" type="text" placeholder="e.g. CON, T3" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit" /></div>
+      <div class="field">
+        <label>Send me</label>
+        <div class="check"><input type="checkbox" id="subRealtime" checked /><label for="subRealtime" style="margin:0">Realtime updates</label></div>
+        <div class="check"><input type="checkbox" id="subRca" /><label for="subRca" style="margin:0">RCAs</label></div>
+        <div class="check"><input type="checkbox" id="subDigest" /><label for="subDigest" style="margin:0">End-of-day digest</label></div>
+      </div>
+    </div>
+    <div class="save-row">
+      <button id="subAddBtn" class="primary">Add / update subscription</button>
+      <span class="sched">Timing (scan interval, digest time) stays a tenant-level setting above.</span>
+    </div>
+    <div id="subList" style="margin-top:12px"></div>
+  </div>
+
   <div id="rcaPanel" class="panel" style="display:none;border-left:3px solid var(--amber)">
     <h2>Pending RCA approvals</h2>
     <div id="rcaList"></div>
@@ -374,6 +395,59 @@ async function rejectRca(id) {
   else toast("Reject failed: " + (r.error||"error"));
 }
 
+async function loadSubscriptions() {
+  const data = await (await fetch("/api/subscriptions")).json();
+  const sel = $("subAudience");
+  if (sel && !sel.dataset.filled) {
+    sel.innerHTML = (data.audiences||[]).map(a => `<option value="${a}">${a}</option>`).join("");
+    sel.dataset.filled = "1";
+  }
+  const subs = data.subscriptions || [];
+  $("subList").innerHTML = subs.length
+    ? subs.map(subRow).join("")
+    : '<div class="fval muted">No subscriptions yet - the watcher falls back to the .env recipient lists.</div>';
+}
+
+function subRow(s) {
+  const ev = (s.events||[]).join(", ");
+  const scope = (s.projects && s.projects.length) ? s.projects.join("/") : "all projects";
+  return `
+<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:6px">
+  <div><b>${esc(s.email)}</b> <span class="chip type-chip">${esc(s.audience)}</span>
+    <span style="color:var(--muted)">${esc(ev)} &middot; ${esc(scope)}</span></div>
+  <button onclick="removeSub('${esc(s.email)}')">Remove</button>
+</div>`;
+}
+
+async function addSubscription() {
+  const events = [];
+  if ($("subRealtime").checked) events.push("realtime");
+  if ($("subRca").checked) events.push("rca");
+  if ($("subDigest").checked) events.push("digest");
+  const projects = ($("subProjects").value||"").split(",").map(s => s.trim()).filter(Boolean);
+  const body = {
+    email: $("subEmail").value.trim(),
+    name: $("subName").value.trim(),
+    audience: $("subAudience").value,
+    events, projects,
+  };
+  const r = await (await fetch("/api/subscriptions", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)
+  })).json();
+  if (r.ok) {
+    toast("Subscription saved");
+    $("subEmail").value = ""; $("subName").value = ""; $("subProjects").value = "";
+    loadSubscriptions();
+  } else toast("Could not save: " + (r.error||"error"));
+}
+
+async function removeSub(email) {
+  const r = await (await fetch(`/api/subscriptions/${encodeURIComponent(email)}`, {method:"DELETE"})).json();
+  if (r.ok) { toast("Subscription removed"); loadSubscriptions(); }
+  else toast("Remove failed: " + (r.error||"error"));
+}
+
+$("subAddBtn").onclick = addSubscription;
 $("saveBtn").onclick = saveSettings;
 $("scanBtn").onclick = async () => {
   $("scanBtn").disabled = true;
@@ -403,6 +477,7 @@ $("digestBtn").onclick = async () => {
 };
 
 loadSettings();
+loadSubscriptions();
 loadResults();
 setInterval(loadResults, 15000);
 </script>

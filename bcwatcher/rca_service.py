@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from bcwatcher import guardrails, rca_store
+from bcwatcher import guardrails, rca_store, subscriptions
 from bcwatcher.config import config
 from bcwatcher.emailfmt import render_rca_email
 from bcwatcher.mailer import Mailer
+from bcwatcher.notifier import Notifier
 
 
 def _now() -> str:
@@ -41,7 +42,13 @@ def approve(rca_id: str, approver: str = "engineering", edited_body: str | None 
         rec["body_html"] = guardrails.sanitize_html_fragment(edited_body)
 
     subject, body = render_rca_email(rec, config.jira_base_url)
-    (mailer or Mailer(config)).send(subject, body, to=config.rca_recipients())
+    sender = mailer or Mailer(config)
+    case_scope = {"member_keys": rec.get("display_keys") or [rec.get("primary_key")]}
+    subs = subscriptions.resolve("rca", case_scope)
+    if subs:
+        Notifier.with_email(sender).send(subs, subject, body, kind="rca")
+    else:
+        sender.send(subject, body, to=config.rca_recipients())
 
     return rca_store.set_status(
         rca_id,

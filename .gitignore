@@ -16,4 +16,6 @@ results.json.tmp
 settings.json
 rca_queue.json
 rca_queue.json.tmp
+subscriptions.json
+subscriptions.json.tmp
 dry_run_email.html

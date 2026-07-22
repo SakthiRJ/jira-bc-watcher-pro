@@ -15,12 +15,13 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 
-from bcwatcher import rca_store, store
+from bcwatcher import rca_store, store, subscriptions
 from bcwatcher.config import config
 from bcwatcher.emailfmt import render_audience_email, render_progress_email, render_rca_email
 from bcwatcher.grouping import build_groups, display_keys
 from bcwatcher.jira_client import Comment, Issue, JiraClient, in_scope
 from bcwatcher.mailer import Mailer
+from bcwatcher.notifier import Notifier
 from bcwatcher.state import State
 from bcwatcher.summarizer import Summarizer, truncate
 
@@ -293,12 +294,23 @@ def _safe_clear_scanning() -> None:
 
 
 def _send_progress_emails(mailer: Mailer, case: dict) -> None:
-    """Send recipient-tailored progress emails.
+    """Send recipient-tailored progress updates.
 
-    When per-audience recipient lists are configured, each audience gets its own
-    template from the single validated fact set. Otherwise fall back to the
-    general update sent to EMAIL_RECIPIENTS (backward compatible).
+    Routing precedence:
+      1. Per-recipient subscriptions (Phase 3): each audience's subscribers whose
+         scope matches the case get that audience's template, delivered via their
+         channel.
+      2. Static per-audience env lists (Phase 2).
+      3. The single general update to EMAIL_RECIPIENTS (backward compatible).
     """
+    audience_subs = subscriptions.audience_map("realtime", case)
+    if audience_subs:
+        notifier = Notifier.with_email(mailer)
+        for audience, records in audience_subs.items():
+            subject, body = render_audience_email(case, audience, config.jira_base_url)
+            notifier.send(records, subject, body, audience=audience, kind="update")
+        return
+
     audiences = config.audience_recipients()
     if audiences:
         for audience, recipients in audiences.items():

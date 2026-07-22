@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from bcwatcher import store
+from bcwatcher import store, subscriptions
 from bcwatcher.config import config
 from bcwatcher.emailfmt import render_digest
 from bcwatcher.mailer import Mailer
+from bcwatcher.notifier import Notifier
 
 
 def send_digest(scan_first: bool = False, reason: str = "manual") -> dict:
@@ -34,7 +35,12 @@ def send_digest(scan_first: bool = False, reason: str = "manual") -> dict:
 
     date_str = datetime.now().strftime("%A, %d %b %Y")
     subject, body = render_digest(cases, config.jira_base_url, date_str)
-    Mailer(config).send(subject, body)
+    mailer = Mailer(config)
+    digest_subs = subscriptions.resolve("digest")
+    if digest_subs:
+        Notifier.with_email(mailer).send(digest_subs, subject, body, kind="digest")
+    else:
+        mailer.send(subject, body)
 
     return {
         "sent": True,

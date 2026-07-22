@@ -86,3 +86,24 @@ Separate "extract facts" from "write emails":
   Approve/Reject actions, backed by `/api/rca`, `/api/rca/<id>/approve`, and
   `/api/rca/<id>/reject`. A `rca_approval_required` setting (default on) gates the
   workflow; turning it off restores the immediate-send behavior.
+
+## Phase 3 changes (subscriptions + channel abstraction)
+
+- `bcwatcher/subscriptions.py` stores per-recipient subscriptions
+  (`subscriptions.json`): which events a person wants (`realtime`, `rca`,
+  `digest`), an audience template, an optional project/priority scope, and a
+  delivery channel. `add()` applies self-subscribe guardrails (email format,
+  known audience/channel, non-empty events, project allow-listing, a cap) so the
+  dashboard form can be exposed safely.
+- Routing is resolved by `resolve(event, case)` and `audience_map(event, case)`;
+  scope matching is by case project (from member keys) and priority.
+- `bcwatcher/channels/` is the delivery abstraction: a `Channel` base plus an
+  `EmailChannel` over the SMTP `Mailer`. `bcwatcher/notifier.py` groups
+  subscriber records by channel and dispatches; an unregistered channel is
+  reported as skipped rather than raising, so a future Teams channel (Phase 7)
+  drops in without touching the scan/RCA/digest code.
+- Progress updates (`scanner`), RCA broadcast (`rca_service`), and the digest
+  (`digest`) now resolve subscribers first and fall back to the Phase 2/4
+  `EMAIL_RECIPIENTS*` lists when none are configured (backward compatible).
+- Timing (scan interval, digest time) stays a tenant-level dashboard setting;
+  subscriptions only govern who gets what, not when.

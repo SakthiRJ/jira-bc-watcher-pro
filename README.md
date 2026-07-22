@@ -189,6 +189,9 @@ jira-bc-watcher-pro/
 │  ├─ summarizer.py           # extract -> validate -> render (progress + RCA)
 │  ├─ rca_store.py             # persistent RCA approval queue + state machine
 │  ├─ rca_service.py           # RCA approve/reject/broadcast logic (Flask-free)
+│  ├─ subscriptions.py         # per-recipient routing (events + scope) with guardrails
+│  ├─ notifier.py              # dispatch a notification to subscribers across channels
+│  ├─ channels/                # delivery channels (email now; Teams etc. later)
 │  ├─ guardrails.py           # anti-hallucination validation (grounding, sanitisation)
 │  ├─ llm/                    # pluggable LLM providers (Groq, OpenAI/Azure, Anthropic)
 │  ├─ mailer.py               # SMTP sender with dry-run mode
@@ -227,7 +230,11 @@ The full phased plan (with testing and sign-off gates per phase) is tracked in
   `pending_approval -> approved -> sent`) and only broadcasts once approved.
   Approver edits are re-sanitised; a dedicated `EMAIL_RECIPIENTS_RCA` list can
   target the broadcast.
-- **Phase 3** - notification routing, subscriptions, and per-user delivery
-  preferences (timing stays at tenant level).
+- **Phase 3 (done)** - per-recipient notification subscriptions: each person
+  chooses which events they get (realtime updates / RCAs / digest) and an
+  optional project/priority scope, managed on the dashboard with self-subscribe
+  guardrails. All sends route through a channel abstraction (email now, Teams
+  later). Timing stays a tenant-level setting; the `EMAIL_RECIPIENTS*` lists are
+  the fallback when no subscriptions exist.
 - **Phase 5+** - per-project configurable grouping, multi-tenant configuration, a
   database backend, and additional channels such as Microsoft Teams.
