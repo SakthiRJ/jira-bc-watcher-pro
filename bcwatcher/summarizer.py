@@ -1,22 +1,29 @@
-"""AI summaries via Groq (OpenAI-compatible chat completions).
+"""AI summaries through a swappable LLM provider, with hard guardrails.
 
-- ``status(...)`` returns {"current_status", "whats_next"} for a case with new
-  activity (used by both the dashboard and the incremental emails).
-- ``rca(...)`` returns {"subject", "body_html"} for a closed case.
+Pipeline: extract -> validate -> render.
+  1. ``status(...)`` / ``rca(...)`` issue ONE bounded, temperature-0 call to the
+     active provider (Groq by default; OpenAI/Anthropic by config) asking for
+     strict JSON.
+  2. Every field returned is run through ``bcwatcher.guardrails`` (length caps,
+     dash/markdown/quote cleanup, grounding against the case's real ticket keys,
+     HTML allow-listing) before it can reach an email.
+  3. Deterministic fallbacks ("Not stated in ticket") replace anything empty or
+     ungrounded, so a bad generation degrades safely instead of misinforming.
 
-Payloads are bounded (comment count, per-comment length, total size, and
-description length) so long threads stay under Groq's request-size limit. If a
-call fails, deterministic fallbacks are returned so the scan never crashes.
+Payloads are bounded (comment count, per-comment length, total size, description
+length) to stay under provider request limits and to keep token usage low. A
+transport/parse failure raises ``LLMError`` so the scan retries that case next
+cycle rather than sending empty content.
 """
 from __future__ import annotations
 
-import json
 import textwrap
 from typing import TYPE_CHECKING
 
-import requests
-
+from bcwatcher import guardrails
 from bcwatcher.config import Config
+from bcwatcher.guardrails import clean_text
+from bcwatcher.llm import LLMProvider, build_provider
 
 if TYPE_CHECKING:  # avoid circular import at runtime
     from bcwatcher.jira_client import Comment, Issue
@@ -25,7 +32,19 @@ MAX_COMMENTS = 12
 MAX_COMMENT_CHARS = 1200
 MAX_TOTAL_COMMENT_CHARS = 9000
 MAX_DESCRIPTION_CHARS = 700
-MAX_OUTPUT_TOKENS = 700
+
+STATUS_MAX_CHARS = 280
+NEXT_MAX_CHARS = 200
+SUBJECT_MAX_CHARS = 180
+
+_STATUS_FALLBACK = "Update received; see ticket for details."
+_NOT_STATED = "Not stated in ticket"
+
+_GROUNDING_RULES = (
+    "Use only facts present in the data provided. Never invent ticket keys, "
+    "names, dates, numbers, or causes. If something is not in the data, say "
+    f"'{_NOT_STATED}'. Do not use em dashes."
+)
 
 
 def truncate(text: str, limit: int) -> str:
@@ -43,7 +62,7 @@ def _build_comment_block(comments: list["Comment"]) -> str:
         lines.append(f"({omitted} earlier comment(s) omitted for brevity)")
     total = 0
     for c in selected:
-        body = truncate(c.body, MAX_COMMENT_CHARS)
+        body = clean_text(c.body, MAX_COMMENT_CHARS)
         entry = f"- {c.author} ({c.created}):\n{body}"
         total += len(entry)
         if total > MAX_TOTAL_COMMENT_CHARS:
@@ -54,8 +73,10 @@ def _build_comment_block(comments: list["Comment"]) -> str:
 
 
 class Summarizer:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, provider: LLMProvider | None = None):
         self.config = config
+        # Provider is resolved from config but can be injected (tests / future DI).
+        self.provider = provider or build_provider(config)
 
     def status(self, primary: "Issue", group: list["Issue"], new_comments: list["Comment"]) -> dict:
         keys = ", ".join(i.key for i in group)
@@ -63,8 +84,7 @@ class Summarizer:
         comment_block = _build_comment_block(new_comments)
         system = (
             "You write concise, factual status updates about business-critical "
-            "support tickets for non-technical stakeholders. Never invent details "
-            "not in the data. Do not use em dashes."
+            "support tickets for non-technical stakeholders. " + _GROUNDING_RULES
         )
         user = textwrap.dedent(
             f"""
@@ -79,14 +99,20 @@ class Summarizer:
             Return ONLY valid JSON with two keys:
             "current_status": one or two sentences on where the case stands now,
             "whats_next": one sentence on the next action or expected step
-            (use "Not stated in ticket" if it cannot be inferred).
+            (use "{_NOT_STATED}" if it cannot be inferred).
             """
         ).strip()
-        data = self._complete(system, user)
-        return {
-            "current_status": (data.get("current_status") or "Update received; see ticket for details.").strip(),
-            "whats_next": (data.get("whats_next") or "Not stated in ticket").strip(),
-        }
+
+        data = self.provider.complete_json(system, user)  # raises LLMError on failure
+        allowed = {i.key for i in group}
+
+        current = guardrails.sanitize_line(data.get("current_status"), STATUS_MAX_CHARS)
+        if not current or not guardrails.is_grounded(current, allowed):
+            current = _STATUS_FALLBACK
+        nxt = guardrails.sanitize_line(data.get("whats_next"), NEXT_MAX_CHARS)
+        if not nxt or not guardrails.is_grounded(nxt, allowed):
+            nxt = _NOT_STATED
+        return {"current_status": current, "whats_next": nxt}
 
     def rca(self, primary: "Issue", group: list["Issue"], comments: list["Comment"]) -> dict:
         keys = ", ".join(i.key for i in group)
@@ -94,8 +120,8 @@ class Summarizer:
         thread = _build_comment_block(comments)
         system = (
             "You write clear Root Cause Analysis (RCA) summaries for closed "
-            "business-critical tickets, based strictly on the ticket data. If a "
-            "section cannot be determined, say 'Not stated in ticket'. Do not use em dashes."
+            "business-critical tickets, based strictly on the ticket data. "
+            + _GROUNDING_RULES
         )
         user = textwrap.dedent(
             f"""
@@ -114,9 +140,18 @@ class Summarizer:
             Keep each to 1-3 sentences.
             """
         ).strip()
-        data = self._complete(system, user)
-        subject = (data.get("subject") or f"[RCA] {keys}: {primary.summary}").strip()
-        body = (data.get("body_html") or "").strip()
+
+        data = self.provider.complete_json(system, user)  # raises LLMError on failure
+        allowed = {i.key for i in group}
+
+        subject = guardrails.sanitize_line(data.get("subject"), SUBJECT_MAX_CHARS)
+        if not subject:
+            subject = f"[RCA] {keys}: {primary.summary}"
+        elif not subject.startswith("[RCA]"):
+            subject = f"[RCA] {subject}"
+
+        body = guardrails.strip_unknown_keys(data.get("body_html"), allowed)
+        body = guardrails.sanitize_html_fragment(body)
         if not body:
             body = "<p>RCA could not be generated automatically; please review the ticket.</p>"
         return {"subject": subject, "body_html": body}
@@ -127,7 +162,7 @@ class Summarizer:
         lines = []
         for issue in group:
             role = "primary" if issue.key == primary.key else "linked"
-            desc = truncate(issue.description, MAX_DESCRIPTION_CHARS)
+            desc = clean_text(issue.description, MAX_DESCRIPTION_CHARS)
             lines.append(
                 f"[{role}] {issue.key} ({issue.project}) | type={issue.issue_type} "
                 f"| priority={issue.priority} | status={issue.status} "
@@ -135,29 +170,3 @@ class Summarizer:
                 + (f"\n  description: {desc}" if desc else "")
             )
         return "\n".join(lines)
-
-    def _complete(self, system: str, user: str) -> dict:
-        try:
-            resp = requests.post(
-                f"{self.config.groq_base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.config.groq_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.config.groq_model,
-                    "temperature": 0.2,
-                    "max_tokens": MAX_OUTPUT_TOKENS,
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                },
-                timeout=60,
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-            return json.loads(content)
-        except Exception as exc:  # noqa: BLE001 - never break the scan
-            return {"_error": str(exc)}
